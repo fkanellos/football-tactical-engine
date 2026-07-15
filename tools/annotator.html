@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tactical Pattern Annotator</title>
+<style>
+  :root {
+    --bg: #14171c; --panel: #1d2129; --panel2: #232834; --text: #e6e9ef;
+    --muted: #8b93a7; --accent: #4f8cff; --green: #3ecf8e; --red: #e5534b;
+    --border: #313847;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; padding: 10px 16px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; padding: 12px 16px; }
+  @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+  video { width: 100%; max-height: 56vh; background: #000; border-radius: 8px; outline: none; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  button, select, input[type=text] {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer;
+  }
+  input[type=text] { cursor: text; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.danger { color: var(--red); }
+  .label-btn { padding: 6px 10px; }
+  .label-btn.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .mark { font-variant-numeric: tabular-nums; background: var(--panel2); padding: 4px 8px; border-radius: 6px; }
+  .kbd { color: var(--muted); font-size: 12px; }
+  kbd {
+    background: var(--panel2); border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 4px; padding: 0 5px; font-size: 11px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; }
+  tr.evt { cursor: pointer; }
+  tr.evt:hover { background: var(--panel2); }
+  td .del { background: none; border: none; color: var(--red); font-size: 15px; padding: 0 4px; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .t-high_press { background: #3b2d10; color: #ffb454; }
+  .t-low_block { background: #102c3b; color: #54c2ff; }
+  .t-flank_overload { background: #23103b; color: #b98aff; }
+  .t-offside_trap { background: #3b1027; color: #ff7ab0; }
+  .t-counter_attack { background: #0f3322; color: #3ecf8e; }
+  .t-none { background: #2a2f3a; color: var(--muted); }
+  #status { color: var(--muted); font-size: 12px; min-height: 16px; }
+  #dropzone {
+    border: 2px dashed var(--border); border-radius: 8px; padding: 40px 20px;
+    text-align: center; color: var(--muted);
+  }
+  textarea {
+    width: 100%; background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; font: inherit; resize: vertical; min-height: 34px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Tactical Pattern Annotator</h1>
+  <label class="kbd">match id <input type="text" id="matchId" size="22" placeholder="from filename"></label>
+  <label class="kbd">annotator <input type="text" id="annotator" size="10" placeholder="name"></label>
+  <div class="spacer"></div>
+  <button id="importBtn">Import JSON</button>
+  <button id="exportBtn" class="primary">Export JSON</button>
+  <input type="file" id="importFile" accept="application/json" hidden>
+</header>
+
+<main>
+  <section>
+    <div id="dropzone">
+      <p><strong>Open a match clip</strong> (mp4/webm — stays on your machine, nothing is uploaded)</p>
+      <input type="file" id="videoFile" accept="video/*">
+    </div>
+    <video id="video" controls hidden></video>
+    <div class="row" id="transport" hidden>
+      <span class="mark" id="clock">0:00.0</span>
+      <button data-seek="-10">−10s</button>
+      <button data-seek="-2">−2s</button>
+      <button data-seek="-0.1">−0.1</button>
+      <button data-seek="0.1">+0.1</button>
+      <button data-seek="2">+2s</button>
+      <button data-seek="10">+10s</button>
+      <select id="rate">
+        <option value="0.25">0.25×</option><option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option><option value="1.5">1.5×</option>
+        <option value="2">2×</option>
+      </select>
+      <span class="kbd">
+        <kbd>space</kbd> play &nbsp;<kbd>←</kbd><kbd>→</kbd> ±2s &nbsp;<kbd>,</kbd><kbd>.</kbd> ±0.1s
+        &nbsp;<kbd>[</kbd> in &nbsp;<kbd>]</kbd> out &nbsp;<kbd>1</kbd>–<kbd>6</kbd> label &nbsp;<kbd>enter</kbd> add
+      </span>
+    </div>
+    <div id="status"></div>
+  </section>
+
+  <section>
+    <div class="panel">
+      <h2>New annotation</h2>
+      <div class="row">
+        <span class="mark">in <span id="markIn">–</span></span>
+        <span class="mark">out <span id="markOut">–</span></span>
+        <button id="setIn">Mark in [</button>
+        <button id="setOut">Mark out ]</button>
+      </div>
+      <div class="row" id="labels"></div>
+      <div class="row">
+        team
+        <select id="team">
+          <option value="home">home</option>
+          <option value="away">away</option>
+          <option value="unknown">unknown</option>
+        </select>
+        period
+        <select id="period"><option value="1">1</option><option value="2">2</option></select>
+        confidence
+        <select id="confidence">
+          <option value="1.0">certain (1.0)</option>
+          <option value="0.7" selected>likely (0.7)</option>
+          <option value="0.4">borderline (0.4)</option>
+        </select>
+      </div>
+      <div class="row"><textarea id="note" placeholder="note (optional): what makes this a clear/unclear example?"></textarea></div>
+      <div class="row"><button id="addBtn" class="primary">Add annotation ⏎</button></div>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <h2>Annotations (<span id="count">0</span>)</h2>
+      <table>
+        <thead><tr><th>start</th><th>end</th><th>pattern</th><th>team</th><th>conf</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const PATTERNS = ["high_press", "low_block", "flank_overload", "offside_trap", "counter_attack", "none"];
+const $ = (id) => document.getElementById(id);
+const video = $("video");
+
+let events = [];        // {pattern, team, start, end, confidence, period, metadata:{note}}
+let markIn = null, markOut = null;
+let selectedPattern = PATTERNS[0];
+
+// ---- helpers ---------------------------------------------------------------
+function fmt(t) {
+  if (t == null) return "–";
+  const m = Math.floor(t / 60), s = (t - m * 60).toFixed(1).padStart(4, "0");
+  return `${m}:${s}`;
+}
+function status(msg, ok = true) {
+  $("status").textContent = msg;
+  $("status").style.color = ok ? "var(--muted)" : "var(--red)";
+}
+function storageKey() { return "annotator:" + ($("matchId").value || "untitled"); }
+function autosave() {
+  try {
+    localStorage.setItem(storageKey(), JSON.stringify({
+      annotator: $("annotator").value, events: events, saved: new Date().toISOString(),
+    }));
+  } catch (e) { /* storage full/blocked: export still works */ }
+}
+
+// ---- video loading ----------------------------------------------------------
+$("videoFile").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  video.src = URL.createObjectURL(file);
+  video.hidden = false; $("transport").hidden = false; $("dropzone").style.display = "none";
+  if (!$("matchId").value) $("matchId").value = file.name.replace(/\.[^.]+$/, "");
+  const saved = localStorage.getItem(storageKey());
+  if (saved && events.length === 0) {
+    try {
+      const data = JSON.parse(saved);
+      events = data.events || [];
+      if (data.annotator) $("annotator").value = data.annotator;
+      render();
+      status(`Restored ${events.length} annotation(s) autosaved ${data.saved || "earlier"} for this match id.`);
+    } catch (err) { /* ignore corrupt autosave */ }
+  } else {
+    status(`Loaded ${file.name}.`);
+  }
+});
+
+// ---- transport ----------------------------------------------------------------
+setInterval(() => { if (!video.hidden) $("clock").textContent = fmt(video.currentTime); }, 100);
+document.querySelectorAll("[data-seek]").forEach((b) =>
+  b.addEventListener("click", () => { video.currentTime += parseFloat(b.dataset.seek); })
+);
+$("rate").addEventListener("change", () => { video.playbackRate = parseFloat($("rate").value); });
+
+// ---- marks & labels --------------------------------------------------------------
+function setMarkIn() { markIn = video.currentTime; $("markIn").textContent = fmt(markIn); }
+function setMarkOut() { markOut = video.currentTime; $("markOut").textContent = fmt(markOut); }
+$("setIn").addEventListener("click", setMarkIn);
+$("setOut").addEventListener("click", setMarkOut);
+
+PATTERNS.forEach((p, i) => {
+  const b = document.createElement("button");
+  b.className = "label-btn" + (i === 0 ? " selected" : "");
+  b.textContent = `${i + 1} ${p}`;
+  b.addEventListener("click", () => selectPattern(p));
+  b.dataset.pattern = p;
+  $("labels").appendChild(b);
+});
+function selectPattern(p) {
+  selectedPattern = p;
+  document.querySelectorAll(".label-btn").forEach((b) =>
+    b.classList.toggle("selected", b.dataset.pattern === p)
+  );
+}
+
+// ---- add / delete / render ----------------------------------------------------------
+function addAnnotation() {
+  if (video.hidden) return status("Load a video first.", false);
+  if (markIn == null || markOut == null) return status("Set both marks first ([ then ]).", false);
+  if (markOut <= markIn) return status("Mark out must be after mark in.", false);
+  events.push({
+    pattern: selectedPattern,
+    team: $("team").value,
+    start: Math.round(markIn * 10) / 10,
+    end: Math.round(markOut * 10) / 10,
+    confidence: parseFloat($("confidence").value),
+    intensity: null,
+    period: parseInt($("period").value, 10),
+    metadata: { note: $("note").value.trim() },
+  });
+  events.sort((a, b) => a.start - b.start);
+  $("note").value = ""; markIn = markOut = null;
+  $("markIn").textContent = $("markOut").textContent = "–";
+  render(); autosave();
+  status("Added. Marks cleared for the next clip.");
+}
+$("addBtn").addEventListener("click", addAnnotation);
+
+function render() {
+  const tbody = $("rows");
+  tbody.innerHTML = "";
+  events.forEach((ev, idx) => {
+    const tr = document.createElement("tr");
+    tr.className = "evt";
+    tr.innerHTML =
+      `<td>${fmt(ev.start)}</td><td>${fmt(ev.end)}</td>` +
+      `<td><span class="tag t-${ev.pattern}">${ev.pattern}</span></td>` +
+      `<td>${ev.team}</td><td>${ev.confidence.toFixed(1)}</td>`;
+    const td = document.createElement("td");
+    const del = document.createElement("button");
+    del.className = "del"; del.textContent = "✕"; del.title = "delete";
+    del.addEventListener("click", (e) => {
+      e.stopPropagation(); events.splice(idx, 1); render(); autosave();
+    });
+    td.appendChild(del); tr.appendChild(td);
+    tr.addEventListener("click", () => { video.currentTime = Math.max(0, ev.start - 1); video.play(); });
+    tr.title = ev.metadata && ev.metadata.note ? ev.metadata.note : "";
+    tbody.appendChild(tr);
+  });
+  $("count").textContent = events.length;
+}
+
+// ---- import / export ---------------------------------------------------------------
+function exportJson() {
+  const doc = {
+    schema: "pattern-events/v1",
+    match_id: $("matchId").value || "untitled",
+    source: "manual-annotation",
+    annotator: $("annotator").value || undefined,
+    exported_at: new Date().toISOString(),
+    events: events,
+  };
+  const blob = new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (doc.match_id || "annotations") + ".events.json";
+  a.click(); URL.revokeObjectURL(a.href);
+  status(`Exported ${events.length} annotation(s).`);
+}
+$("exportBtn").addEventListener("click", exportJson);
+
+$("importBtn").addEventListener("click", () => $("importFile").click());
+$("importFile").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  file.text().then((text) => {
+    try {
+      const doc = JSON.parse(text);
+      if (!Array.isArray(doc.events)) throw new Error("no events array");
+      events = doc.events.map((ev) => ({
+        pattern: ev.pattern, team: ev.team || "unknown",
+        start: ev.start, end: ev.end,
+        confidence: ev.confidence != null ? ev.confidence : 0.7,
+        intensity: ev.intensity != null ? ev.intensity : null,
+        period: ev.period || 1,
+        metadata: ev.metadata || {},
+      }));
+      if (doc.match_id) $("matchId").value = doc.match_id;
+      if (doc.annotator) $("annotator").value = doc.annotator;
+      render(); autosave();
+      status(`Imported ${events.length} annotation(s) from ${file.name}.`);
+    } catch (err) {
+      status("Import failed: " + err.message, false);
+    }
+  });
+  e.target.value = "";
+});
+
+// ---- keyboard --------------------------------------------------------------------
+document.addEventListener("keydown", (e) => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (video.hidden) return;
+  const key = e.key;
+  if (key === " ") { e.preventDefault(); video.paused ? video.play() : video.pause(); }
+  else if (key === "ArrowLeft") { e.preventDefault(); video.currentTime -= e.shiftKey ? 10 : 2; }
+  else if (key === "ArrowRight") { e.preventDefault(); video.currentTime += e.shiftKey ? 10 : 2; }
+  else if (key === ",") { video.currentTime -= 0.1; }
+  else if (key === ".") { video.currentTime += 0.1; }
+  else if (key === "[") { setMarkIn(); }
+  else if (key === "]") { setMarkOut(); }
+  else if (key >= "1" && key <= "6") { selectPattern(PATTERNS[parseInt(key, 10) - 1]); }
+  else if (key === "Enter") { e.preventDefault(); addAnnotation(); }
+});
+</script>
+</body>
+</html>
