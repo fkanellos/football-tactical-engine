@@ -35,7 +35,7 @@ class RestartConfig:
     """Thresholds; provenance in design doc §10 (rule geometry + noise margins)."""
 
     touch_radius_m: float = 2.5        # last-touch attribution radius
-    touch_lookback_s: float = 1.0
+    touch_lookback_s: float = 4.0      # a pass can roll out for seconds after the touch
     near_line_m: float = 1.5           # ball lost this close to a line => exit candidate
     min_outward_speed_ms: float = 0.3  # ...if moving toward the line at least this fast
     definite_out_m: float = 1.0        # 2 sigma: excursion that alone confirms out
@@ -429,18 +429,19 @@ class RestartDetector(EventDetector):
     # -- shared helpers ---------------------------------------------------------------
 
     def _last_touch(self, seg: KinematicSegment, exit_: _Exit):
+        """Most recent frame before the exit with a player at the ball — walking
+        backward, because "last touch" means the LATEST contact, not the closest."""
         cfg = self.config
         lookback = max(1, int(round(cfg.touch_lookback_s / (seg.grid[1] - seg.grid[0])))) \
             if len(seg) > 1 else 1
-        best = None
-        for j in range(max(0, exit_.index - lookback), exit_.index + 1):
+        for j in range(exit_.index, max(0, exit_.index - lookback) - 1, -1):
             pos = seg.ball_pos(j)
             if pos is None:
                 continue
             near = seg.nearest_player(j, pos[0], pos[1], max_dist_m=cfg.touch_radius_m)
-            if near is not None and (best is None or near[1] < best[1]):
-                best = near
-        return best  # (PlayerTrack, dist) | None
+            if near is not None:
+                return near
+        return None  # (PlayerTrack, dist) | None
 
     def _find_resumption(
         self, kin: KinematicSeries, exit_: _Exit, launches: List[Tuple[int, BallLaunch]],

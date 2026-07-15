@@ -183,10 +183,11 @@ def detect_launches(seg: KinematicSegment, config: KinematicsConfig) -> List[Bal
         s_prev, s = seg.ball_speed(i - 1), seg.ball_speed(i)
         if s is None:
             continue
-        jump = (
-            s_prev is not None
-            and (s - s_prev) >= config.min_speed_jump_ms
-            and s >= config.min_launch_speed_ms
+        # one-frame step, or a two-frame ramp (smoothing spreads soft kicks
+        # across the window, so no single step may clear the bar)
+        s_prev2 = seg.ball_speed(i - 2) if i >= 2 else None
+        jump = (s_prev is not None and (s - s_prev) >= config.min_speed_jump_ms) or (
+            s_prev2 is not None and (s - s_prev2) >= 1.5 * config.min_speed_jump_ms
         )
         redirect = False
         if not jump and s_prev is not None and s_prev >= config.redirect_min_speed_ms \
@@ -202,9 +203,22 @@ def detect_launches(seg: KinematicSegment, config: KinematicsConfig) -> List[Bal
         if not jump and not redirect:
             continue
         pos = seg.ball_pos(i)
-        vx, vy = seg.ball_vx[i], seg.ball_vy[i]
-        if pos is None or vx is None or vy is None:
+        if pos is None:
             continue
+        # smoothing smears the speed step across the window: the trigger frame
+        # under-reports the kick, so the launch kinematics come from the peak
+        # within the cooldown window (position/attribution stay at the trigger).
+        peak = i
+        for k in range(i, min(i + config.launch_cooldown_frames, len(seg) - 1) + 1):
+            sk = seg.ball_speed(k)
+            if sk is not None and (seg.ball_speed(peak) is None or sk > seg.ball_speed(peak)):
+                peak = k
+        vx, vy = seg.ball_vx[peak], seg.ball_vy[peak]
+        s = seg.ball_speed(peak)
+        if vx is None or vy is None or s is None:
+            continue
+        if jump and not redirect and s < config.min_launch_speed_ms:
+            continue  # amplitude gate applies at the peak, where the kick shows
         kicker: Optional[Tuple[PlayerTrack, float]] = None
         for j in range(max(0, i - lookback), i + 1):
             bp = seg.ball_pos(j)
@@ -229,7 +243,14 @@ def detect_launches(seg: KinematicSegment, config: KinematicsConfig) -> List[Bal
                 kicker_dist_m=kicker[1] if kicker else None,
             )
         )
-        skip_until = i + config.launch_cooldown_frames
+        # one kick's smeared ramp must not re-trigger: skip while speed rises
+        k = i + 1
+        while k < len(seg):
+            sk, sk_prev = seg.ball_speed(k), seg.ball_speed(k - 1)
+            if sk is None or sk_prev is None or sk <= sk_prev + 0.2:
+                break
+            k += 1
+        skip_until = max(i + config.launch_cooldown_frames, k)
     return launches
 
 
