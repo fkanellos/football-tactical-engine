@@ -20,3 +20,15 @@ of time so the architecture is settled before the tracking data arrives (see
   produces real output to pin the format against.
 - [`recommendations/`](recommendations/) — rule-based counter-strategy engine: analyst-
   authored rules (YAML) matched against detected pattern profiles. Still skeleton.
+- [`patterns/streaming/`](patterns/streaming/) — live/broadcast-time detection (see
+  [`/docs/live-architecture-design.md`](../docs/live-architecture-design.md)): causal
+  twins of the batch feature helpers (same numbers, delayed — parity-tested), the
+  PROVISIONAL/CONFIRMED/CLOSED episode lifecycle machines, and the WebSocket event
+  schema for the `/ui` client. Feature-extractor assembly and the serving layer are
+  design-only pending real tracking data.
+- [`scouting/`](scouting/) — opponent scouting from historical footage (see
+  [`/docs/opponent-scouting-design.md`](../docs/opponent-scouting-design.md)):
+  recency-weighted multi-match tendency profiles with explicit uncertainty, the
+  pre-match report, and bounded Bayesian priors that feed the live detectors.
+  Aggregation/priors/report math implemented and tested; rendered recommendations
+  await the Phase 5 engine.
