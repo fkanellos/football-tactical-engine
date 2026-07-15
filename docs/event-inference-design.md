@@ -7,8 +7,12 @@ detectors. Nothing is validated against real tracking output yet; every threshol
 carries provenance or an explicit "engine-original" flag (§10).
 
 **Scope:** inferring discrete match events — passes, shots, crosses, corners,
-throw-ins, goal kicks, kickoffs, set-piece restarts, and (as an explicitly weak proxy)
-foul/stoppage signals — from player + ball tracking positions only. No event feed, no
+throw-ins, goal kicks, kickoffs, set-piece restarts, and a coarse cause-agnostic
+stoppage signal — from player + ball tracking positions only. Per review, the
+deliverable for dead-ball play is **detecting and typing the restart** (Tier 1
+boundary restarts + §5.3 set-piece organization); *why* the game stopped is a
+referee decision, out of reach by agreement, and nothing here attempts to classify
+it. No event feed, no
 audio, no scoreboard OCR, no referee-signal interpretation.
 
 **Relationship to the other design docs:** this layer sits **below Phase 4**
@@ -56,12 +60,19 @@ explicitly rather than pretending one detector family produces one quality of tr
 |---|---|---|---|
 | **1 — reliable** | throw-in, corner, goal kick, kickoff | ball trajectory crossing a known line + the *restart morphology* (where play resumes from) | high precision once tuned; the restart position is ~40 m of separation between hypotheses — far outside any calibration noise |
 | **2 — feasible, real uncertainty** | pass (+ short/long/through/cross/cutback subtypes), shot (attempt), set-piece organization | ball kinematics (launch/flight/reception) + player proximity + formation geometry | good on clean sequences; degrades honestly with ball-tracking dropouts, 5 Hz sampling, and partial visibility; sub-second events are at the recall floor |
-| **3 — weak proxy, explicitly so** | contested stoppage | collective motion collapse + body convergence | **cannot** distinguish foul / offside / injury / dangerous play; emitted as one conflated bucket with the conflation stated in the event itself |
+| **3 — coarse signal** | stoppage | collective motion collapse + dead ball | a *segmentation* channel: "play is stopped here", nothing more — deliberately carries **no cause claim** of any kind |
+
+Dead-ball play, the review-clarified framing: the useful deliverable is **"a restart
+is happening, of this type"** — throw-in / corner / goal kick / kickoff from Tier 1,
+free-kick-shaped setups from §5.3 — regardless of what caused the stoppage. Tier 3
+exists only to make the stream segmentable into in-play / dead-ball phases through
+one uniform channel.
 
 And the refusals, stated once: we do **not** claim to detect fouls, offside *calls*,
-cards, advantage played, or goals-with-certainty. Where a Tier 1/2 event can
-*corroborate* one of these (a kickoff following a goal-mouth shot), the corroboration
-chain is explicit in the event metadata, never silently folded into a confident label.
+cards, advantage played, why play stopped, or goals-with-certainty. Where a Tier 1/2
+event can *corroborate* one of these (a kickoff following a goal-mouth shot), the
+corroboration chain is explicit in the event metadata, never silently folded into a
+confident label.
 
 A second axis, orthogonal to the tier: **detection vs interpretation confidence**.
 "A shot was struck" (detection) and "it was saved" (outcome interpretation) are
@@ -257,13 +268,17 @@ separately from `confidence`, and `restart_after` names the corroborating Tier 1
 event when one was found. A shot with `outcome: unresolved` at high attempt
 confidence is a *good* detection honestly labelled, not a failure.
 
-### 5.3 Set-piece organization
+### 5.3 Set-piece organization — the primary dead-ball deliverable
 
-The purpose of this detector is narrow and honest: flag **"a dead-ball restart
-happened here"** — with rough location and the organizational signature — *without*
-claiming to know why the game stopped. It exists because Tier 1 only explains
-stoppages that begin with a boundary crossing; free kicks (the tactically
-interesting restarts) begin with a whistle we cannot hear.
+Together with the Tier 1 restarts, this detector is what "dead-ball phase
+detection" *means* in this design (per the review clarification): recognize that a
+dead-ball restart is happening and roughly type it — throw-in / corner / goal kick
+/ kickoff come typed from Tier 1 already; this detector covers the remainder, the
+free-kick-shaped restarts, by their organizational signature. It flags **"a
+dead-ball restart happened here"** with rough location, *without* claiming to know
+why the game stopped (a referee decision, out of reach by agreement). It exists
+because Tier 1 only explains stoppages that begin with a boundary crossing; free
+kicks — the tactically interesting restarts — begin with a whistle we cannot hear.
 
 Signature: a dead spell (ball at rest or untracked, collective player speeds
 collapsed) lasting ≥ ~6 s, whose *tail* shows static set-piece organization, ended by
@@ -287,32 +302,33 @@ not `free_kick`, because offside restarts and drop balls produce the same pictur
 Metadata records the delivery (`runners_into_box` around the resumption) because
 that is what a set-piece scouting consumer actually wants.
 
-## 6. Tier 3: the contested-stoppage proxy
+## 6. Tier 3: the coarse stoppage signal
 
-**We cannot detect a foul.** This section designs the best available proxy and
-states its conflation explicitly, because the alternative — naming it `foul` and
-letting the UI print referee decisions we never saw — is exactly the kind of
-overclaim this project refuses.
+Scoped narrowly on purpose (review clarification): this channel answers exactly one
+question — **is play stopped right now?** — so the event stream can be segmented
+into in-play and dead-ball phases. It does **not** classify cause, does not carry a
+`possible_causes` list, does not try to distinguish a foul from an injury from an
+offside call. Restart *typing* is Tier 1's and §5.3's job; cause is nobody's.
 
-**Signature.** Two simultaneous collapses: *collective motion* (median visible-player
-speed drops from play level ≥ ~1.3 m/s to < ~0.7 m/s within a couple of seconds, and
-stays there ≥ ~2.5 s) and *possession activity* (ball at rest or lost). Plus the
-discriminating garnish: *body convergence* — ≥ 4 players, from **both** teams,
-clustering within ~4 m of where the ball died. The convergence is what separates
-"contested stoppage" (players surrounding an incident/referee) from a neutral pause.
+**Signature.** Two simultaneous collapses, sustained: *collective motion* (median
+visible-player speed < ~0.7 m/s, i.e. standing/walking, for ≥ ~2.5 s) and *ball
+activity* (ball at rest or lost by the tracker). Confidence is the stillness margin
+× dead-ball evidence × visibility quality — nothing else.
 
-**What one event means:** exactly one of {foul, offside call, injury stoppage,
-dangerous-play stop, referee intervention we have no name for} happened around
-`(x, y)` at `start_s`. The event's own metadata carries
-`possible_causes: [foul, offside, injury, dangerous_play]` — the conflation rides in
-the data contract, so no downstream consumer can honestly forget it. Confidence
-reflects only "a contested stoppage occurred", never any specific cause.
+**Uniform coverage, cross-referenced.** Unlike §5.3, stoppage events are emitted
+for *every* dead phase, including those a Tier 1 restart or set-piece setup already
+explains — a segmentation channel is only useful if it is complete. Each stoppage
+carries `explained_by` metadata naming the overlapping higher-tier event type (or
+`null` for an unexplained pause), so consumers can distinguish "typed restart" from
+"play just stopped and we don't know more" without this detector ever claiming the
+type itself.
 
-**What would do better — named, and explicitly out of scope:**
+**What richer stoppage understanding would need — named, and explicitly out of
+scope:**
 
 - **Referee tracking.** The data model already ingests `Role.REFEREE` detections
-  (kept for debugging, unused). A referee converging on the cluster, or sprinting to
-  a spot and standing over it, is the obvious next corroborator — but referee track
+  (kept for debugging, unused). A referee sprinting to a spot and standing over it
+  is the obvious corroborator for where and why play stopped — but referee track
   quality is unvalidated and the interpretation (signals, advantage arm) is a
   research problem. Not promised.
 - **Whistle detection from broadcast audio.** Probably the single highest-value
@@ -338,7 +354,7 @@ pipeline/
     passes.py       # Tier 2: pass + subtype ladder
     shots.py        # Tier 2: shot attempt + outcome ladder
     setpieces.py    # Tier 2: set-piece organization
-    stoppages.py    # Tier 3: contested-stoppage proxy
+    stoppages.py    # Tier 3: coarse stoppage segmentation signal
     runner.py       # staged orchestration -> MatchEventStream -> match_events.json
     testing/
       synthetic.py  # scripted fixtures (reuses the patterns synthetic builder)
@@ -359,7 +375,8 @@ The deviation: **detectors run in stages and see prior stages' output** (`contex
 Pattern detectors are deliberately independent (batch design §3.7); event detectors
 are deliberately *not*, because the evidence really is layered — shot outcomes need
 restarts (kickoff ⇒ goal), passes need shots (a launch is one or the other),
-setpieces/stoppages need restarts (skip explained dead spells). Stage order:
+set-pieces need restarts (skip already-typed dead spells) and stoppages need both
+(to cross-reference `explained_by`). Stage order:
 restarts → shots → passes → set-pieces → stoppages. This is a dependency DAG frozen
 in the runner, not detector-to-detector coupling; any detector still runs correctly
 (more conservatively) with an empty context.
@@ -385,11 +402,10 @@ One JSON document per match, versioned like its siblings:
       "metadata": { "passer_track_id": 207, "receiver_track_id": 209,
                     "outcome": "completed", "length_m": 24.3, "forward": true,
                     "subtype": "long_pass", "subtype_confidence": 0.66 } },
-    { "type": "contested_stoppage", "tier": 3, "team": null, "period": 2,
+    { "type": "stoppage", "tier": 3, "team": null, "period": 2,
       "start": 2911.0, "end": 2934.2, "confidence": 0.58,
       "x": -3.0, "y": 12.5,
-      "metadata": { "possible_causes": ["foul", "offside", "injury", "dangerous_play"],
-                    "cluster_size": 6, "cluster_mixed": true } } ] }
+      "metadata": { "explained_by": null, "ball_observed_fraction": 0.4 } } ] }
 ```
 
 Conventions: `team` is the event's protagonist (thrower, passer, shooter, restart
@@ -405,8 +421,8 @@ Same standard as Phase 4: deterministic synthetic fixtures
 event's textbook positive *and* its deliberate negatives — ball-brushes-the-line
 (no event), ambiguous 0.3 m excursion with clean restart morphology (event at
 moderate confidence — the confidence *band* is itself asserted), dribble that must
-not read as a pass, pass scenario that must not read as a shot, gradual slowdown that
-must not read as a contested stoppage, deflection where geometry must overrule
+not read as a pass, pass scenario that must not read as a shot, slow circulation
+that must not read as a stoppage, deflection where geometry must overrule
 last-touch attribution. Run with the existing suite:
 `python3 -m unittest discover -s pipeline/tests`.
 
@@ -489,7 +505,7 @@ completes*:
 
 | Detector | Streaming fit | Evidence horizon |
 |---|---|---|
-| stoppage proxy | causal, easy | ~3 s (the sustain window) — episode-machine shaped |
+| stoppage signal | causal, easy | ~3 s (the sustain window) — episode-machine shaped |
 | pass | causal | flight time, ≤ ~4 s; PROVISIONAL at launch, resolve at reception — `AnchoredWindowMachine` shaped |
 | shot attempt | causal | ~1 s after launch |
 | set-piece organization | causal with natural delay | PROVISIONAL while the wall forms, CONFIRMED at the delivery — tens of seconds, all forward-looking |
@@ -526,7 +542,7 @@ below are to sources already verified in the July 2026 pass (batch design §8).
 | Wall geometry | ≥ 3 players, ≤ 2 m spacing, 6–12 m annulus | the 9.15 m law + observed wall widths — **engine-original formalisation** |
 | Shot zone / speed | ≤ 35 m from goal, ≥ 9 m/s soft | **engine-original**; goal-mouth projection is the real discriminator, speed is secondary |
 | Pass length buckets | 15 m / 30 m | **engine-original convention**, no published standard adopted |
-| Stoppage speeds | play ≥ 1.3, stopped < 0.7 m/s | **engine-original**, well below the 5.5 m/s HSR band — these are walk/stand thresholds |
+| Stoppage speeds | players < 0.7 m/s, ball < 0.5 m/s | **engine-original**, far below the 5.5 m/s HSR band — these are stand-still thresholds |
 | Wide-channel / box geometry | lanes per feature layer; box 40.32 × 16.5 m | pitch law + the batch design's lane scheme |
 
 Standing caveat, inherited from the batch design and doubled here: thresholds were
