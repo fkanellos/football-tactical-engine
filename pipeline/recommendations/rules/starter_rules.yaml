@@ -1,0 +1,58 @@
+# Counter-strategy rules — analyst-authored content (design doc §5.2).
+#
+# This file is the AUTHORING FORMAT for the rules table; RulesRepository.from_yaml
+# loads and validates it. The entries here mirror two of the Python starter rules
+# to make the format concrete — they are illustrative placeholders, not tactical
+# claims. Curate freely: this file is meant to be edited without touching code.
+#
+# Field reference:
+#   priority        analyst judgment of actionability when fired, 0..1
+#   trigger.scope   opponent (counter THEIR tendency) | self (address OUR habit)
+#   trigger.where   filters on aggregate breakdowns; sides are from the ATTACKING
+#                   team's perspective — templates get {mirrored_side} for free
+#   requires        SquadProfile capability flags this advice presupposes;
+#                   unmet => recommendation demoted with the gap stated, not dropped
+#   conflicts_group rules sharing a group are mutually exclusive (highest score wins)
+
+- rule_id: double-up-vs-left-flank-overload
+  author: filippos
+  provenance: starter
+  priority: 0.8
+  trigger:
+    pattern: flank_overload
+    scope: opponent
+    min_rate_per_90: 6
+    min_mean_confidence: 0.5
+    where: { side: left }
+  requires: []
+  conflicts_group: flank-defence
+  recommendation:
+    headline: "Double up on their {side} flank (your {mirrored_side})"
+    rationale: >
+      They overload the {side} flank when building up ({count} episodes,
+      {rate_per_90:.0f}/90 observed). Doubling your {mirrored_side}-sided winger
+      onto their overlapping full-back blunts the 2v1.
+    suggested_actions:
+      - "Winger tracks the overlapping full-back; full-back stays on the touchline man"
+      - "Nearest CM shuttles across to screen the half-space cutback"
+
+- rule_id: out-ball-vs-own-pinned-block
+  author: filippos
+  provenance: starter
+  priority: 0.6
+  trigger:
+    pattern: low_block
+    scope: self          # a rule about OUR OWN detected habit
+    min_rate_per_90: 3
+    min_mean_confidence: 0.6
+  requires: []
+  conflicts_group: null
+  recommendation:
+    headline: "We get pinned deep for long spells — rehearse an out-ball routine"
+    rationale: >
+      We spent {total_duration_s:.0f}s (observed) in a deep block. Without a
+      reliable exit, deep spells compound: territory lost, fouls, set-pieces
+      conceded.
+    suggested_actions:
+      - "Designated out-ball target and a rehearsed pattern to reach them"
+      - "Trigger to step the whole block up on any clearance won"
