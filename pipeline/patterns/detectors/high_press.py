@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from statistics import median
 from typing import ClassVar, List, Optional, Tuple
 
-from ..features import FeatureSeries, PossessionState
+from ..features import FeatureSeries, FrameFeatures, PossessionState
 from ..tracking import MatchMeta, TeamSide
 from .base import (
     DetectorRegistry,
@@ -42,6 +42,61 @@ class HighPressConfig:
     counter_press_window_s: float = 5.0  # within this of a turnover => tag as counter-press
     score_enter: float = 0.30
     score_exit: float = 0.15
+
+
+def frame_score(
+    f: FrameFeatures, team: TeamSide, meta: MatchMeta, period: int, cfg: HighPressConfig
+) -> Tuple[Optional[float], bool]:
+    """Per-frame high-press candidate (score, complete) for one team.
+
+    Module-level so the batch detector and the streaming wrapper
+    (``streaming.detector.StreamingHighPressDetector``) share ONE scoring
+    function — live and post-match runs cannot drift apart. ``None`` score =
+    pattern not applicable this frame (own possession / dead ball / ball
+    invalid), matching ``episodes_from_scores``'s None convention.
+    """
+    poss = f.possession.state.side()
+    if poss is None or poss is team or not f.ball.valid:
+        return None, False
+    tf = f.team(team)
+    ball_x = f.ball.x_rel(team, meta, period)
+    factors = [
+        soft_threshold(ball_x, cfg.ball_deep_in_opponent_third_m, 5.0),
+        soft_threshold(tf.def_line_height, cfg.min_def_line_height_m, 5.0),
+        soft_threshold(
+            None if tf.defenders_within_15m is None else float(tf.defenders_within_15m),
+            cfg.min_defenders_within_15m, 0.75,
+        ),
+        soft_threshold(
+            tf.nearest_defender_dist, cfg.max_nearest_defender_dist_m, 1.5, above=False
+        ),
+        soft_threshold(tf.press_closing_speed, cfg.min_closing_speed_ms, 0.5),
+    ]
+    score = 1.0
+    for x in factors:
+        score *= x
+    complete = None not in (
+        ball_x,
+        tf.def_line_height,
+        tf.defenders_within_15m,
+        tf.nearest_defender_dist,
+        tf.press_closing_speed,
+    )
+    return score, complete
+
+
+def frame_intensity(f: FrameFeatures, team: TeamSide, cfg: HighPressConfig) -> Optional[float]:
+    """Per-frame intensity contribution (pressers + closing speed + line height);
+    shared by the batch episode intensity and the streaming intensity hint."""
+    tf = f.team(team)
+    terms = []
+    if tf.defenders_within_15m is not None:
+        terms.append(clamp01((tf.defenders_within_15m - 2) / 4.0))
+    if tf.press_closing_speed is not None:
+        terms.append(clamp01(tf.press_closing_speed / 2.5))
+    if tf.def_line_height is not None:
+        terms.append(clamp01((tf.def_line_height - cfg.min_def_line_height_m) / 20.0))
+    return sum(terms) / len(terms) if terms else None
 
 
 @DetectorRegistry.register
@@ -105,39 +160,9 @@ class HighPressDetector(PatternDetector):
         complete: List[bool] = []
 
         for f in seg.frames:
-            poss = f.possession.state.side()
-            if poss is None or poss is team or not f.ball.valid:
-                scores.append(None)
-                complete.append(False)
-                continue
-            tf = f.team(team)
-            ball_x = f.ball.x_rel(team, meta, period)
-            factors = [
-                soft_threshold(ball_x, cfg.ball_deep_in_opponent_third_m, 5.0),
-                soft_threshold(tf.def_line_height, cfg.min_def_line_height_m, 5.0),
-                soft_threshold(
-                    None if tf.defenders_within_15m is None else float(tf.defenders_within_15m),
-                    cfg.min_defenders_within_15m, 0.75,
-                ),
-                soft_threshold(
-                    tf.nearest_defender_dist, cfg.max_nearest_defender_dist_m, 1.5, above=False
-                ),
-                soft_threshold(tf.press_closing_speed, cfg.min_closing_speed_ms, 0.5),
-            ]
-            score = 1.0
-            for x in factors:
-                score *= x
+            score, comp = frame_score(f, team, meta, period, cfg)
             scores.append(score)
-            complete.append(
-                None
-                not in (
-                    ball_x,
-                    tf.def_line_height,
-                    tf.defenders_within_15m,
-                    tf.nearest_defender_dist,
-                    tf.press_closing_speed,
-                )
-            )
+            complete.append(comp)
 
         spans = episodes_from_scores(
             scores, times, cfg.score_enter, cfg.score_exit, cfg.min_duration_s, cfg.merge_gap_s
@@ -166,19 +191,11 @@ class HighPressDetector(PatternDetector):
         return events
 
     def _intensity(self, seg: FeatureSeries, a: int, b: int, team: TeamSide) -> float:
-        cfg = self.config
         parts: List[float] = []
         for f in seg.frames[a:b]:
-            tf = f.team(team)
-            terms = []
-            if tf.defenders_within_15m is not None:
-                terms.append(clamp01((tf.defenders_within_15m - 2) / 4.0))
-            if tf.press_closing_speed is not None:
-                terms.append(clamp01(tf.press_closing_speed / 2.5))
-            if tf.def_line_height is not None:
-                terms.append(clamp01((tf.def_line_height - cfg.min_def_line_height_m) / 20.0))
-            if terms:
-                parts.append(sum(terms) / len(terms))
+            v = frame_intensity(f, team, self.config)
+            if v is not None:
+                parts.append(v)
         return clamp01(sum(parts) / len(parts)) if parts else 0.0
 
     def _metadata(self, seg: FeatureSeries, a: int, b: int, team: TeamSide) -> dict:
