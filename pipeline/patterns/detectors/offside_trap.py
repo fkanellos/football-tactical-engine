@@ -34,7 +34,12 @@ from .base import (
 
 @dataclass
 class OffsideTrapConfig:
-    """Thresholds; provenance in the design doc's sourcing appendix."""
+    """Thresholds; provenance in the design doc's sourcing appendix (§9).
+
+    The step speed/gain values are ENGINE-ORIGINAL: the July 2026 literature
+    pass confirmed no quantitative study of offside-trap execution or line
+    step-up dynamics exists (closest work, Yagi et al. 2025 on line breaks,
+    defines the line positionally with no step criteria)."""
 
     min_line_step_speed_ms: float = 1.5   # def_line_velocity sustained upward
     min_line_gain_m: float = 2.0          # total height gained around the step

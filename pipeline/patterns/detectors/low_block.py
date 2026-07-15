@@ -21,7 +21,14 @@ from .base import (
 
 @dataclass
 class LowBlockConfig:
-    """Thresholds; provenance in the design doc's sourcing appendix.
+    """Thresholds; provenance in the design doc's sourcing appendix (§9).
+
+    Line height 28m matches the top of the published 22-28m average own-goal-to-
+    defence-line range in professional matches (Rico-González et al. 2022 review);
+    width 40m matches elite out-of-possession block widths (FIFA WC2022: 38.4-
+    40.75m). The 700 m² hull fallback sits below the lowest published defending-
+    phase median (~774 m², Moura et al. 2012) — no published "low block" area
+    threshold exists.
 
     Compactness is judged two ways and the MORE GENEROUS wins: (a) adaptively —
     hull area in this team's own bottom ``hull_area_quantile`` of out-of-possession

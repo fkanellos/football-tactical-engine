@@ -20,12 +20,19 @@ from .base import (
 
 @dataclass
 class CounterAttackConfig:
-    """Thresholds; provenance in the design doc's sourcing appendix."""
+    """Thresholds; provenance in the design doc's sourcing appendix (§9).
 
-    window_after_turnover_s: float = 10.0
-    min_progression_m: float = 25.0       # ball gain toward opponent goal...
-    final_third_x_rel_m: float = 70.0     # ...or reaching the final third
-    min_mean_progression_speed_ms: float = 4.0
+    Window and progression follow Yang, Ge & Cui 2025 (J Big Data 12:91), the
+    only validated tracking-based counter-attack rule set found (kappa > 0.9 vs
+    human analysts): duration <= 14s, ball moves >= 16m forward. The progression
+    -speed cutoff has no published value (Opta defines "direct speed" as a
+    metric with no threshold) and is engine-original.
+    """
+
+    window_after_turnover_s: float = 14.0  # Yang et al. 2025: counters last <= 14s
+    min_progression_m: float = 16.0        # Yang et al. 2025: ball moves >= 16m forward
+    final_third_x_rel_m: float = 70.0      # ...or reaching the final third
+    min_mean_progression_speed_ms: float = 4.0  # engine-original (no published cutoff)
     min_runners: int = 2                  # n_forward_runners peak within the burst
     score_min: float = 0.30               # anchor fires iff soft-product >= this
     disorganised_margin: int = 1          # opponents-behind-ball below their median

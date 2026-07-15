@@ -315,14 +315,19 @@ class FeatureExtractorConfig:
     smoothing_window_s: float = 1.0
     min_visible_for_shape: int = 5  # fewer visible outfielders => shape fields None
 
-    # possession state machine
+    # possession state machine. Radius: published clean-data values are 0.5-1m
+    # at 25 Hz (Vidal-Codina et al. 2022), who explicitly endorse enlarging the
+    # radius for broadcast-derived data — our case at ~5 Hz; 2.0m is that
+    # enlargement (engine choice, mechanism cited).
     possession_radius_m: float = 2.0    # holder = nearest player within this radius
     contested_radius_m: float = 2.0     # opponent also within => CONTESTED
     turnover_persistence_s: float = 2.0 # a flip must survive this long to count
     out_of_bounds_margin_m: float = 0.5
 
-    # signal-definition constants
-    runner_speed_ms: float = 4.0  # forward-run threshold for n_forward_runners
+    # signal-definition constants. Runner threshold = the standard high-speed-
+    # running band entry (>19.8 km/h; Gualtieri et al. 2023 review; FIFA uses
+    # 20 km/h) — below it is jogging, not a "fast forward run".
+    runner_speed_ms: float = 5.5  # forward-run threshold for n_forward_runners
 
 
 # ---------------------------------------------------------------------------

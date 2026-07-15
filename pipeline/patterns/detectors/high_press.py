@@ -21,13 +21,22 @@ from .base import (
 
 @dataclass
 class HighPressConfig:
-    """Thresholds; provenance in the design doc's sourcing appendix."""
+    """Thresholds; provenance in the design doc's sourcing appendix (§9).
+
+    max_nearest_defender_dist_m follows StatsBomb's 5-yard pressure radius
+    (4.57m, industry convention; corroborated in Bauer & Anzer 2021). Bauer &
+    Anzer showed a bare 5-yard rule over-detects pressing on its own — here it
+    is one factor of five in a product, which is the mitigation. Line height,
+    support count, closing speed and duration have no published values
+    (confirmed by literature pass) and are engine-original.
+    """
 
     ball_deep_in_opponent_third_m: float = 70.0  # ball beyond presser's attacking 70m line
-    min_def_line_height_m: float = 40.0
-    min_defenders_within_15m: int = 3
-    max_nearest_defender_dist_m: float = 6.0
-    min_closing_speed_ms: float = 0.5
+    min_def_line_height_m: float = 40.0          # engine-original (no published value)
+    min_defenders_within_15m: int = 3            # engine-original (cf. Bauer & Anzer's
+                                                 # 10/20/30m feature circles)
+    max_nearest_defender_dist_m: float = 4.6     # StatsBomb 5-yard pressure radius
+    min_closing_speed_ms: float = 0.5            # engine-original (no published value)
     min_duration_s: float = 3.0
     merge_gap_s: float = 2.0
     counter_press_window_s: float = 5.0  # within this of a turnover => tag as counter-press

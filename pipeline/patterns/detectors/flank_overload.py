@@ -26,7 +26,13 @@ _SIDE_SIGN = {"left": 1.0, "right": -1.0}
 
 @dataclass
 class FlankOverloadConfig:
-    """Thresholds; provenance in the design doc's sourcing appendix."""
+    """Thresholds; provenance in the design doc's sourcing appendix (§9).
+
+    The five-lane scheme is genuine coaching convention (half-spaces /
+    Spielverlagerung / juego de posición) but no source defines lane widths in
+    metres; equal 13.6m fifths are our simplification — the convention's
+    pitch-marking anchors imply ~13.8/11/18.3/11/13.8m. Occupancy and
+    superiority counts are engine-original (no published thresholds)."""
 
     min_ball_x_rel_m: float = 35.0        # middle/final third of the attacking team
     wide_lane_min_abs_y_m: float = 13.6   # |y'| beyond this = ball is in a wide lane
