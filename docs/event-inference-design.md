@@ -113,8 +113,12 @@ Decisions worth their ink:
 The layer also owns **ball launch detection** — the shared primitive under every Tier
 2 detector: a launch is a ball speed jump (≥ ~1.8 m/s between consecutive grid frames,
 i.e. ≥ 9 m/s² — comfortably above Link & Hoernig's 4 m/s² kick-detection threshold,
-conservative because our smoothing smears steps) or a sharp velocity redirect at
-speed, attributed to the nearest player within 2.5 m in the preceding ~0.4 s.
+conservative because our smoothing smears steps; an equivalent two-frame ramp also
+triggers, since smoothing spreads soft kicks past any single step) or a sharp
+velocity redirect at speed, attributed to the nearest player within 2.5 m in the
+preceding ~0.4 s. The launch's kinematics are read at the post-trigger speed peak
+(the trigger frame under-reports a smeared kick), and one kick's rising ramp is
+suppressed from re-triggering.
 *Honest ML note:* a learned kick/touch classifier on raw (unsmoothed, full-rate)
 detections is the known-better replacement here; at 5 Hz smoothed, soft kicks under
 ~5 m/s are simply below our detection floor and short one-touch combinations blur
@@ -164,10 +168,11 @@ Two honesty consequences, stated plainly:
 ### 4.2 Last-touch attribution (and when to overrule it)
 
 The restart *type* on goal-line exits depends on who touched the ball last (attacker
-⇒ goal kick, defender ⇒ corner). We attribute last touch as the nearest player within
-2.5 m in the ~1 s before the crossing — and this is the weakest link in Tier 1:
-deflections (the canonical corner-vs-goal-kick decider) happen between our samples
-and inside our smoothing window.
+⇒ goal kick, defender ⇒ corner). We attribute last touch by walking *backward* from
+the crossing (most recent contact wins) to the latest frame with a player within
+2.5 m of the ball, up to ~4 s back — a pass can roll out for seconds after the touch.
+This is the weakest link in Tier 1: deflections (the canonical corner-vs-goal-kick
+decider) happen between our samples and inside our smoothing window.
 
 The design rule: **when attribution and resumption geometry disagree, geometry
 wins.** If the last visible touch says "attacker" but play resumes from the corner

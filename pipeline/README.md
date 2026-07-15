@@ -18,6 +18,14 @@ of time so the architecture is settled before the tracking data arrives (see
   `python3 -m unittest discover -s pipeline/tests`. The TrackLab ingest adapter
   (`patterns/tracking.py:load_tracklab_states`) stays stubbed until `/research`
   produces real output to pin the format against.
+- [`events/`](events/) — discrete match-event inference from tracking alone (see
+  [`/docs/event-inference-design.md`](../docs/event-inference-design.md)): boundary
+  restarts (throw-in/corner/goal kick/kickoff), passes with subtypes, shots with an
+  outcome honesty ladder, set-piece organization, and a coarse stoppage signal —
+  each event carrying its confidence tier. Sits *below* `patterns/`; the possession
+  machinery there is flagged to consume this stream (design doc §8, not yet wired).
+  **Fully implemented** against synthetic fixtures; emits `match_events.json`
+  (`match-events/v1`).
 - [`recommendations/`](recommendations/) — rule-based counter-strategy engine: analyst-
   authored rules (YAML) matched against detected pattern profiles. Still skeleton.
 - [`patterns/streaming/`](patterns/streaming/) — live/broadcast-time detection (see
