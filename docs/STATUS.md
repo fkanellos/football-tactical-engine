@@ -9,7 +9,7 @@ only against synthetic fixtures we wrote ourselves.** No tactical detector, even
 scouting, or streaming component has ever consumed real tracking output. The join between "real
 perception" and "real tactics" has not happened yet.
 
-Test suite: **155 passed** (`python -m pytest -q`, 1.5 s) as of this snapshot — all synthetic.
+Test suite: **199 passed** (`python -m pytest -q`, ~2 s) as of this snapshot — all synthetic.
 
 ---
 
@@ -47,6 +47,15 @@ qualitatively reasonable output*. We have **not** measured accuracy against grou
 The `boundary_noise_m = 0.5` used throughout the event layer is still an engineering guess,
 not a measured value from this footage.
 
+**Known defect in the OFI run's pitch coordinates (found 2026-07-16, fixed in config):**
+the calibration module's hardcoded 1920×1080 pixel frame vs the clip's real 1280×720 means
+**every `bbox_pitch` of that run is systematically distorted** (positions compressed toward
+the world region at the frame's top-left). `research/configs/video_demo.yaml` now pins the
+module image size to the clip resolution; already-exported homographies are repairable via
+`pipeline.calibration.rescale_homography`. Full story: docs/calibration-design.md §3.4.
+Separately, the projected pitch overlays visibly wobble/skew (worst on near-goal framings) —
+diagnosed with ranked hypotheses in calibration-design.md §4, measurable next GPU session.
+
 ## 🟡 Implemented, but only validated against synthetic fixtures
 
 All of this is real, tested code — and every test builds its own scripted 22-player scenarios.
@@ -64,6 +73,12 @@ proves the *semantics of the heuristics*, not their behaviour on noisy real data
 - **Streaming causal core** — delayed-exact smoothing, causal possession machine, episode
   lifecycle machines, live event/WS schema, `StreamingHighPressDetector`. Batch-parity tested
   (7-seed randomized). (`pipeline/patterns/streaming/`)
+- **Calibration measurement layer + smoother** — no-ground-truth per-frame
+  `calibration_quality` (residual/conditioning/plausibility/temporal components), static-span
+  jitter and teleport metrics, and quality-gated pose-space temporal smoothing, all validated
+  against synthetic broadcast-camera trajectories with injected detector pathologies. 44
+  tests. Has never seen a real exported homography — that export is the next-session
+  priority. (`pipeline/calibration/`, design: docs/calibration-design.md)
 
 ## 🔵 Design-only (specified, not built)
 
@@ -135,3 +150,8 @@ the kernel is registered by setup step 2 and the demo hangs on the default Pytho
 **Priority once it runs:** export the per-frame tracking state to disk and feed it through
 `pipeline/patterns/tracking.py`'s adapter → `FeatureExtractor`. That is the first real-data
 validation of Phase 4 and the thing every "synthetic-only" caveat above is waiting on.
+Second priority, same session: export the per-frame **calibration** state (keypoints, lines,
+camera params, H) and run `pipeline/calibration/`'s measurement layer over it — the concrete
+experiment is scripted in docs/calibration-design.md §9. Note the re-run must use the fixed
+`video_demo.yaml` (calibration image-size keys) or every pitch coordinate repeats the
+1080p/720p distortion.

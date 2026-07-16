@@ -49,8 +49,16 @@ modules:
   pose_bottomup: {batch_size: 8}
   reid: {batch_size: 64}
   track: {batch_size: 64}
-  pitch: {batch_size: 1}
-  calibration: {batch_size: 1}
+  # image_width/height MUST match the actual clip resolution. Upstream
+  # hardcodes 1920x1080 (SoccerNet footage); nbjw_calib denormalises its
+  # keypoints to THIS size and fits the homography in that pixel frame, while
+  # detection bboxes stay in real video pixels. On a 1280x720 clip the stock
+  # values silently project every player through a mismatched frame (positions
+  # compressed toward the world region imaged at the frame's top-left) — see
+  # docs/calibration-design.md §3.4. The OFI run (2026-07) shipped with this
+  # bug; every bbox_pitch it produced carries the distortion.
+  pitch: {batch_size: 1, image_width: 1280, image_height: 720}
+  calibration: {batch_size: 1, image_width: 1280, image_height: 720}
   jersey_number_detect: {batch_size: 8}
 test_tracking: True
 print_config: False

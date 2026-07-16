@@ -11,11 +11,12 @@ what runs on real data vs synthetic fixtures vs design-only — see **[STATUS.md
 
 ---
 
-## The four design docs
+## The five design docs
 
 | Doc | Covers | Status |
 |---|---|---|
 | [phase4-5-design.md](phase4-5-design.md) | **The core.** Feature layer, the five batch pattern detectors (high press, low block, flank overload, offside trap, counter-attack), the Phase 5 rule-based recommendation engine, threshold provenance. Everything else references this. | Phase 4 **implemented + tested** (synthetic fixtures, 42 tests); Phase 5 **skeleton**. Not validated on real tracking. |
+| [calibration-design.md](calibration-design.md) | The **layer below all of it**: why stage-3 camera calibration degrades on the real clip (diagnosis from the nbjw_calib source + OFI frames, incl. the 1080p/720p pixel-frame bug), the no-ground-truth measurement methodology, the per-frame `calibration_quality` gate, pose-space temporal smoothing, and the ranked intervention plan. | Measurement layer + smoother **implemented + tested** (synthetic trajectories, 44 tests, `pipeline/calibration/`); config fix **committed**; real-data export & Phase 4 wiring **pending next GPU session**. |
 | [event-inference-design.md](event-inference-design.md) | The **layer below Phase 4**: inferring discrete match events (restarts, passes, shots, set-pieces, a coarse stoppage signal) from tracking alone, organised by a three-tier confidence hierarchy. | Detectors **implemented + tested** (synthetic). The §8 Phase-4 possession refactor is **designed and flagged, deliberately not implemented**. |
 | [live-architecture-design.md](live-architecture-design.md) | Running the *same* Phase 4 logic frame-by-frame with bounded latency: the parity principle, causal smoothing, episode lifecycle machines, the WebSocket contract, the live-profile GPU story. | Causal core (smoothing, possession, lifecycle machines, WS schema) **implemented + tested**; feature assembly + `pipeline/live/` service layer **skeleton / design-only**. |
 | [opponent-scouting-design.md](opponent-scouting-design.md) | Multi-match aggregation into `TeamScoutingProfile`s, the day-before scouting report, and live detection **priors** — the bridge between batch and live. | Aggregation, priors, report schema/adapter **implemented + tested**. Rendered recommendations **blocked on the Phase 5 engine**; footage-source question **open by design**. |

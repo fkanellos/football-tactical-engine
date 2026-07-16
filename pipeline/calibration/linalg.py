@@ -16,7 +16,7 @@ Numerical choices, briefly:
 from __future__ import annotations
 
 import math
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Tuple
 
 Matrix = List[List[float]]
 Vector = List[float]

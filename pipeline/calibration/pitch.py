@@ -15,7 +15,7 @@ by centimetres, far below the error scale this layer measures (metres).
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .camera import Matrix, Point2, project
 

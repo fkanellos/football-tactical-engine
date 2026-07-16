@@ -13,9 +13,10 @@ script globs each for the target files. Default root: /content/sn-gamestate
 (covers both the editable sn_gamestate source and the tracklab install under
 .venv/lib/.../site-packages).
 
-Why these three patches — all found while running the pipeline on a 1280x720
+Why these patches — 1-3 found while running the pipeline on a 1280x720
 broadcast clip (OFI vs Olympiacos), where the stock code either crashed or
-silently dropped output:
+silently dropped output; 4 added by the calibration work
+(docs/calibration-design.md):
 
   1. calibration (nbjw_calib.py, pnlcalib.py)
      `predictions = metadatas["keypoints"][0]` uses *label* indexing and throws
@@ -45,6 +46,17 @@ silently dropped output:
      once (O(n)), keeping a single video_id so StrongSORT tracks across frames.
      Pair with:  ffmpeg -i clip.mp4 -vf fps=25 frames/%06d.jpg
      then run:   tracklab ... dataset.video_path=/path/to/frames
+
+  4. calibration export (nbjw_calib.py :: NBJW_Calib.process)
+     The per-frame calibration state (detected keypoints, fitted homography)
+     lives only in memory; nothing serialises it, so the measurement layer in
+     pipeline/calibration/ has nothing to eat (docs/calibration-design.md
+     §9.2). Fix: append one JSON line per frame to calibration_dump.jsonl in
+     the hydra run directory (frame id, pixel-frame size, keypoints in that
+     pixel frame, detected lines, image->pitch homography or null). Camera
+     pose is deliberately NOT dumped — it is re-derived offline by
+     pipeline.calibration.decompose_homography. Wrapped in try/except so a
+     serialisation hiccup can never take down the pipeline run.
 """
 
 import sys
@@ -98,7 +110,7 @@ def main():
     print(f"Applying sn-gamestate custom-video patches (roots: {roots})")
 
     # --- 1. calibration: label -> positional indexing -----------------------
-    print("[1/3] calibration keypoints indexing")
+    print("[1/4] calibration keypoints indexing")
     for rel in ("**/sn_gamestate/calibration/nbjw_calib.py",
                 "**/sn_gamestate/calibration/pnlcalib.py"):
         f = find_one(roots, rel)
@@ -109,7 +121,7 @@ def main():
         )
 
     # --- 2. radar minimap: use real frame size, not 1920x1080 ----------------
-    print("[2/3] radar minimap frame-size")
+    print("[2/4] radar minimap frame-size")
     pitch = find_one(roots, "**/sn_gamestate/visualization/pitch.py")
     apply(
         pitch,
@@ -128,7 +140,7 @@ def main():
     )
 
     # --- 3. decode: folder-of-frames as a single video (O(n)) ----------------
-    print("[3/3] external_video folder-of-frames fast path")
+    print("[3/4] external_video folder-of-frames fast path")
     ev = find_one(roots, "**/tracklab/wrappers/dataset/external_video.py")
     # Insert an early return right after the existence assert. Keyed on the
     # assert so it lands before the original is_dir() (folder-of-videos) branch.
@@ -159,6 +171,41 @@ def main():
         ev,
         [(anchor, early_return)],
         sentinel="football-tactical-engine patch: folder-of-frames",
+    )
+
+    # --- 4. calibration export: one JSON line per frame ----------------------
+    print("[4/4] per-frame calibration export")
+    nbjw = find_one(roots, "**/sn_gamestate/calibration/nbjw_calib.py")
+    dump_anchor = ("h = self.cam.get_homography_from_ground_plane("
+                   "use_ransac=50, inverse=True)")
+    # NB: `predictions` has just been denormalised IN PLACE by self.cam.update()
+    # to the module's configured pixel frame (image_width x image_height), so the
+    # dumped keypoints are in the same pixel frame as the homography.
+    dump_code = dump_anchor + "\n" + (
+        "        # >>> football-tactical-engine patch: per-frame calibration export\n"
+        "        # Serialises what pipeline/calibration/ needs (keypoints + H);\n"
+        "        # camera pose is re-derived offline via decompose_homography.\n"
+        "        try:\n"
+        "            import json as _json\n"
+        "            _rec = {\n"
+        "                'frame': str(metadatas.iloc[0].name),\n"
+        "                'image_width': self.image_width,\n"
+        "                'image_height': self.image_height,\n"
+        "                'keypoints_px': predictions,\n"
+        "                'lines_norm': (metadatas['lines'].iloc[0]\n"
+        "                               if 'lines' in metadatas else None),\n"
+        "                'h_image_to_pitch': (h.tolist() if h is not None else None),\n"
+        "            }\n"
+        "            with open('calibration_dump.jsonl', 'a') as _f:\n"
+        "                _f.write(_json.dumps(_rec, default=float) + '\\n')\n"
+        "        except Exception:\n"
+        "            pass\n"
+        "        # <<< end patch\n"
+    )
+    apply(
+        nbjw,
+        [(dump_anchor, dump_code)],
+        sentinel="per-frame calibration export",
     )
 
     print("Done.")
