@@ -69,7 +69,15 @@ uv pip install -e . --python .venv/bin/python
 echo "=== [7/8] Installing mmcv ==="
 uv run --python .venv/bin/python mim install mmcv==2.0.1
 
-echo "=== [8/8] Patching sn-gamestate/TrackLab for custom-video inference ==="
+echo "=== [8/9] Installing the custom-video pipeline config ==="
+# sn-gamestate ships no config for arbitrary clips (only packaged SoccerNet
+# sequences). Install ours so `tracklab -cn video_demo` works on a fresh VM with
+# no manual config authoring. See research/configs/video_demo.yaml for rationale.
+cp "$SCRIPT_DIR/configs/video_demo.yaml" \
+   /content/sn-gamestate/sn_gamestate/configs/video_demo.yaml
+echo "Installed video_demo.yaml"
+
+echo "=== [9/9] Patching sn-gamestate/TrackLab for custom-video inference ==="
 # Three fixes needed to run the pipeline on our own broadcast clips rather than
 # SoccerNet sequences (see research/patch_sn_gamestate.py for the full rationale):
 #   1. calibration keypoint indexing (KeyError: 0 on ExternalVideo metadata)
@@ -80,7 +88,7 @@ uv run --python .venv/bin/python "$SCRIPT_DIR/patch_sn_gamestate.py" /content/sn
 
 echo ""
 echo "=================================================================="
-echo " DONE — environment ready (with custom-video patches applied)."
+echo " DONE — environment ready (video_demo.yaml installed + patches applied)."
 echo " Switch this notebook's kernel to 'Python 3.9 (sn-gamestate)' and"
 echo " continue from the 'Run the demo' cell."
 echo ""

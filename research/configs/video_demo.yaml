@@ -1,0 +1,59 @@
+# sn-gamestate pipeline config for running on an arbitrary broadcast clip
+# (as opposed to a packaged SoccerNet sequence).
+#
+# This file is NOT part of upstream sn-gamestate — it is installed into
+# sn_gamestate/configs/ by research/setup.sh so a fresh Colab VM reproduces the
+# custom-clip run without any manual config authoring. Invoke it with:
+#
+#   uv run --python .venv/bin/python tracklab -cn video_demo \
+#     dataset.video_path=/content/frames dataset.nframes=-1 num_cores=0
+#
+# Notes on non-obvious keys:
+#   - dataset.video_path is a required placeholder ("???"); pass it on the CLI as
+#     a FOLDER of extracted frames (ffmpeg -i clip.mp4 -vf fps=25 frames/%06d.jpg)
+#     so the patched ExternalVideo decodes it once (O(n)) as a single sequence.
+#   - use_wandb / use_rich / eval_tracking are set False for the newer TrackLab:
+#     it reads these from the top-level config (strict struct mode), and there is
+#     no GT for a raw clip so tracking eval must be off.
+defaults:
+  - dataset: video
+  - eval: gs_hota
+  - engine: offline
+  - visualization: gamestate
+  - modules/bbox_detector: yolo_ultralytics
+  - modules/reid: prtreid
+  - modules/track: bpbreid_strong_sort
+  - modules/jersey_number_detect: mmocr
+  - modules/team: kmeans_embeddings
+  - modules/team_side: mean_position
+  - modules/tracklet_agg: voting_role_jn
+  - modules/pitch : nbjw_calib
+  - modules/calibration: nbjw_calib
+  - _self_
+pipeline: [bbox_detector, reid, track, pitch, calibration, jersey_number_detect, tracklet_agg, team, team_side]
+dataset:
+  video_path: "???"
+  nframes: 150
+  eval_set: "val"
+  dataset_path: "${data_dir}/video"
+experiment_name: "video-demo"
+data_dir: "${project_dir}/data"
+model_dir: "${project_dir}/pretrained_models"
+num_cores: 4
+state: {save_file: null, load_file: null}
+visualization: {cfg: {save_videos: True}}
+project_dir: "${hydra:runtime.cwd}"
+hydra: {output_subdir: "configs", job: {chdir: True}, run: {dir: "outputs/${experiment_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}"}}
+modules:
+  bbox_detector: {batch_size: 8}
+  pose_bottomup: {batch_size: 8}
+  reid: {batch_size: 64}
+  track: {batch_size: 64}
+  pitch: {batch_size: 1}
+  calibration: {batch_size: 1}
+  jersey_number_detect: {batch_size: 8}
+test_tracking: True
+print_config: False
+use_wandb: False
+use_rich: False
+eval_tracking: False
