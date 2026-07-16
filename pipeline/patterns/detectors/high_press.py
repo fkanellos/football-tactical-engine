@@ -108,7 +108,7 @@ class HighPressDetector(PatternDetector):
        (ball x' in D's frame >= ball_deep_in_opponent_third_m);
     2. D's line is high: def_line_height >= min_def_line_height_m
        (missing back line => mild discount, not a veto — "discount, don't drop");
-    3. bodies committed: defenders_within_15m >= 3, nearest defender <= 6m;
+    3. bodies committed: defenders_within_15m >= 3, nearest defender <= 4.6m;
     4. actively closing: press_closing_speed > min_closing_speed_ms.
     Episodes via hysteresis; confidence = margin x quality x completeness;
     intensity from pressers committed + closing speed + line height.

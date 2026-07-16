@@ -167,7 +167,7 @@ build-up deep in the opponent's territory.
 - opponent has possession and ball is deep in *opponent's* territory (opponent's own build-up
   zone: ball beyond D's attacking 70 m line, i.e. within ~35 m of the opponent's goal line);
 - D's defensive line is high: `def_line_height ≥ 40 m`;
-- D commits bodies: `defenders_within_15m ≥ 3` and `nearest_defender_dist ≤ 6 m`;
+- D commits bodies: `defenders_within_15m ≥ 3` and `nearest_defender_dist ≤ 4.6 m`;
 - D is actively closing: `press_closing_speed > 0.5 m/s`.
 Episodes: `min_duration ≈ 3 s`, `merge_gap ≈ 2 s`.
 **Intensity:** pressers committed + closing speed + line height.
@@ -262,11 +262,11 @@ therefore exposes both: (weak) events and (robust) tendency aggregates.
 opponent's goal before the defence reorganises (cf. Vogelbein et al.'s defensive-reaction
 framing, inverted).
 
-**Heuristic.** Anchor on turnovers (possession flips that persist ≥ 2 s). Within a 10 s
+**Heuristic.** Anchor on turnovers (possession flips that persist ≥ 2 s). Within a 14 s
 window after a turnover won by team A:
-- ball progresses ≥ ~25 m toward the opponent goal, or reaches the final third, with mean
+- ball progresses ≥ ~16 m toward the opponent goal, or reaches the final third, with mean
   progression speed ≥ ~4 m/s;
-- runners: ≥ 2 of A's players with forward velocity ≥ ~4 m/s (displacement-based at our Hz);
+- runners: ≥ 2 of A's players with forward velocity ≥ ~5.5 m/s (displacement-based at our Hz);
 - disorganised opponent (supporting, not required): fewer opponents goal-side of the ball
   than their match median.
 **Intensity:** territory gained / time, runner count.

@@ -43,15 +43,16 @@ against synthetic fixtures we authored. See [STATUS.md](STATUS.md) for the blunt
 I cross-checked all four docs for conflicting schemas, incompatible assumptions, duplicated
 concepts under different names, and one doc assuming what another refuses. The docs are
 **substantially coherent** — the parallel sessions cross-referenced each other well. Findings
-below. **None of the source docs were edited** to resolve these; they are surfaced for you to
-decide.
+below. One drift (C1) has been fixed; the rest were checked and confirmed non-issues.
 
-### ⚠️ Unresolved — needs a decision
+### ✓ Resolved — C1 (prose drift, fixed 2026-07-16)
 
-**C1 — `phase4-5-design.md` §3 heuristic prose is stale relative to its own §9 provenance
+**C1 — `phase4-5-design.md` §3 heuristic prose was stale relative to its own §9 provenance
 table and the shipped code.** The §9 "threshold provenance" pass (July 2026) replaced several
 detector defaults, and the code was updated, but the §3 *prose* describing the heuristics was
-never back-updated. Concretely:
+never back-updated. **Now corrected** — the §3.2/§3.6 prose and the `high_press.py:111`
+docstring were edited to the shipped values below. The code was already authoritative and
+correct, so this was a zero-behaviour copy edit. The drift that was fixed:
 
 | Parameter | §3 prose says | §9 table + shipped code | Where verified |
 |---|---|---|---|
@@ -65,14 +66,9 @@ counter values; Gualtieri 2023 for 5.5 m/s; StatsBomb 5-yard radius for 4.6 m), 
 correctly by the *other* docs — e.g. `live-architecture-design.md` §4.3 says "opens a 14 s
 window." So §3 prose is the lone outlier, not the code.
 
-Also note: the docstring inside `high_press.py` itself (around line 111, "nearest defender
-<= 6m") carries the same stale 6 m — a code-comment instance of the same drift, harmless to
-behaviour (the dataclass default 4.6 is what runs).
-
-> **Recommendation:** update the §3.2 and §3.6 prose (and the `high_press.py:111` docstring) to
-> the §9/shipped values. The code is authoritative and correct; this is purely descriptive
-> drift with **zero behavioural impact** — a low-risk copy edit, but worth doing so a reader
-> tuning thresholds from the prose doesn't reintroduce the old numbers.
+The `high_press.py:111` docstring carried the same stale 6 m (a code-comment instance of the
+same drift, harmless to behaviour since the dataclass default 4.6 is what runs); it was
+corrected in the same pass.
 
 ### ✓ Checked and reconciled — no action needed
 
