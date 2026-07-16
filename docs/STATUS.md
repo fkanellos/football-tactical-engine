@@ -21,7 +21,10 @@ visualizer failures. Run metrics: **7,813 detections carrying a track_id**, **85
 IDs** across the clip (down from 825 on the earlier fragmented 150-frame pass), **VIZ_ERR: 0**.
 Every stage produced sane output on real pixels:
 
-- **Detection** — players, referees, ball detected per frame.
+- **Detection** — players and referees detected per frame. **Not the ball**: the deployed
+  detector keeps only the person class (correction 2026-07-16 — the original "ball detected
+  per frame" claim here was wrong; see docs/ball-tracking-design.md §2. There is no ball
+  detector anywhere in the deployed pipeline, by upstream design).
 - **Tracking** — identities tracked across frames (StrongSORT), holding through the full clip.
 - **Team classification** — clean two-way split (red Olympiacos / blue OFI).
 - **Jersey OCR** — jersey numbers read (aids long-term track stitching); e.g. JN 18/19 labelled.
@@ -79,6 +82,12 @@ proves the *semantics of the heuristics*, not their behaviour on noisy real data
   against synthetic broadcast-camera trajectories with injected detector pathologies. 44
   tests. Has never seen a real exported homography — that export is the next-session
   priority. (`pipeline/calibration/`, design: docs/calibration-design.md)
+- **Ball measurement layer + motion model** — coverage/gap statistics, physical-plausibility
+  and player-consistency checks, per-frame `ball_quality` gate, and a gated alpha-beta ball
+  smoother with honest short-gap interpolation, validated against synthetic trajectories with
+  injected dropouts and false positives. 42 tests. Has never seen a real ball detection —
+  because none exists yet: the deployed pipeline has **no ball detector at all** (see 🔴
+  below). (`pipeline/ball/`, design: docs/ball-tracking-design.md)
 
 ## 🔵 Design-only (specified, not built)
 
@@ -102,6 +111,13 @@ proves the *semantics of the heuristics*, not their behaviour on noisy real data
   1–4 *visually* (annotated video + minimap), but we have not serialized the per-frame tracking
   state that would let Phase 4 finally eat real data. That export is the next GPU-session
   priority (see recipe below), not a code blocker.
+- **The pipeline has no ball detector — at all (found 2026-07-16).** The deployed TrackLab
+  detector wrapper keeps only the person class from a stock COCO checkpoint; upstream GSR
+  excludes the ball by design (dataset, baseline, and metric). Every ball detection rate we
+  have ever had is exactly 0, and everything ball-dependent (possession, pressing, counters,
+  Tier 1–2 events) currently has no input. Diagnosis, literature, and the ranked plan:
+  docs/ball-tracking-design.md; the measure-first probe (`research/ball_probe.py`) is queued
+  for the next GPU session alongside the calibration export.
 
 ---
 
@@ -155,3 +171,8 @@ camera params, H) and run `pipeline/calibration/`'s measurement layer over it �
 experiment is scripted in docs/calibration-design.md §9. Note the re-run must use the fixed
 `video_demo.yaml` (calibration image-size keys) or every pitch coordinate repeats the
 1080p/720p distortion.
+Third priority, same session (~5 min GPU): run the **ball probe** —
+`research/ball_probe.py --frames /content/frames --out /content/ball_probe --imgsz 640 1280`
+— and retrieve both jsonl files; the offline analysis (detection rate, gap distribution,
+hypothesis verdicts) is scripted in docs/ball-tracking-design.md §9 and runs in this repo
+with no GPU.
