@@ -10,6 +10,11 @@ gate mirroring ``calibration_quality``, and a ball-appropriate motion model with
 honest gap-bridging. Everything is validated against synthetic trajectories
 (testing/synthetic.py) exactly as pipeline/calibration/ was.
 
+The one signal that needs labels rather than self-consistency lives in
+``evaluation.py``: hand-clicked ball centres (tools/annotator.html ball mode)
+scored against probe detections in native pixel space, for the real
+recall/precision the rest of this package deliberately does without.
+
 Design: /docs/ball-tracking-design.md.
 """
 
@@ -26,6 +31,16 @@ from .coverage import (
     find_gaps,
     gap_contexts,
     zone_counts,
+)
+from .evaluation import (
+    BallGroundTruth,
+    DetectionEval,
+    GroundTruthLabel,
+    evaluate_detections,
+    format_sweep,
+    load_ground_truth,
+    parse_ground_truth,
+    sweep,
 )
 from .ingest import (
     ProbeFrame,

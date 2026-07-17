@@ -1,8 +1,11 @@
 # Ball Tracking: Diagnosis, Measurement, and the Honest Path
 
-**Status:** the measurement layer and ball motion model are **implemented and
-green** against synthetic trajectories (42 tests, `pipeline/ball/`, run with the
-main suite). The diagnosis (§2) is grounded in the actual sn-gamestate/TrackLab
+**Status:** the measurement layer, the ball motion model, and the ground-truth
+evaluation entry point are **implemented and green** against synthetic
+trajectories, synthetic labels, and synthetic detections (63 tests,
+`pipeline/ball/`, run with the main suite); the labelling tool
+(`tools/annotator.html` ball mode) and the workflow that joins it to the probe
+are §6.6. The diagnosis (§2) is grounded in the actual sn-gamestate/TrackLab
 source (pinned clones read for this pass: sn-gamestate main, tracklab v1.3.24)
 and the annotated OFI frames — and it is **conclusive without any further
 measurement: the deployed pipeline contains no ball detector at all** (§2.1).
@@ -331,9 +334,10 @@ caveats).
 
 ## 6. Measurement methodology (implemented: `pipeline/ball/`)
 
-There is no ball ground truth for our footage, and "the ball isn't reliable"
-is not a measurement. Everything below is computable from a per-frame ball
-export — none of it needs labels. Where the calibration layer leaned on known
+"The ball isn't reliable" is not a measurement. §6.1–6.3 and §6.5 are
+computable from a per-frame ball export alone — no labels, by design; §6.4/§6.6
+are the one exception, the ~30 minutes of hand-clicking that buys the one thing
+self-consistency cannot. Where the calibration layer leaned on known
 pitch geometry, this layer leans on **known ball physics and known player
 behaviour**: a real ball moves like a ball and is chased by people.
 
@@ -395,10 +399,30 @@ without pricing sustained invalidity:
 ### 6.4 The one place ground truth is cheap
 
 Ball GT is uniquely cheap to make: one point per frame, no boxes, no
-identities. Hand-clicking the ball centre in ~100 random frames of the OFI
-clip (~30 min of analyst time) turns the probe's detection rate into real
-recall/precision and calibrates every threshold above. Worth doing in the same
-session as §7; no tooling blocker (any image viewer + a CSV).
+identities. Hand-clicking the ball centre in ~100 uniformly sampled frames of
+the OFI clip (~30 min of analyst time) turns the probe's detection rate into
+real recall/precision and calibrates every threshold above. Worth doing in the
+same session as §7. Tooling exists: `tools/annotator.html` ball mode, and
+`pipeline/ball/evaluation.py` scores its export against the probe dump — the
+workflow is §6.6.
+
+Three properties of that labelling pass are load-bearing, and all three are
+easy to lose by accident:
+
+- **Uniform sampling, not cherry-picking.** Every 8th frame, whatever is in it.
+  Label only the frames where you can see the ball and recall measures the
+  annotator's eyesight, not the detector.
+- **"Ball not visible" is a label, not a skip.** An absent-ball frame is ground
+  truth: any detection there is a false positive, and absent frames are the
+  only thing that puts a real number on the confetti hypothesis (H2). Skips —
+  frames you did not adjudicate — must stay distinguishable from adjudicated
+  absences, because they mean the opposite thing. The export keeps skips out of
+  the labels array and marks absences `status: "absent"`; the evaluator counts
+  skips and never scores them.
+- **Native pixel space, resolution stated.** Not pitch coordinates: routing
+  ground truth through the homography folds calibration error and the airborne
+  ground-plane bias (§2.3) into what is meant to be a *detector* measurement,
+  and leaves one number where two failures need telling apart.
 
 ### 6.5 The motion layer (implemented: `pipeline/ball/motion.py`)
 
@@ -417,6 +441,119 @@ with decayed confidence — enforcing phase4-5-design.md §2.2's "never
 interpolate through long gaps" in code. This is the cheap two-mode version of
 the literature's mode-switching filter (§5.3); possession pinning stays in
 the feature layer where the player machinery already lives.
+
+### 6.6 The ground-truth workflow, end to end
+
+Four steps: **extract → label → probe → evaluate**. The whole thing hangs on
+one invariant, so it is stated first.
+
+**The join key is the frame index, and the frame index is sorted position in
+the frames folder.** `research/ball_probe.py` computes it as
+
+```python
+frames = sorted(p for p in Path(args.frames).iterdir()
+                if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"})
+```
+
+enumerated from 0, and `tools/annotator.html` reproduces that exactly — same
+extension set, same non-recursive scope, same plain code-point name ordering.
+So index 0 is `000001.jpg`, index 7 is `000008.jpg`, and *anything that changes
+the folder's contents changes every index after it*. Keep only the extracted
+frames in the folder: one stray `.jpg`, one nested subfolder of crops, one
+re-extraction at a different fps, and the labels silently point at the wrong
+frames.
+
+The join is therefore **verified, not assumed** — a shifted join reads exactly
+like a bad detector, and "recall is 2%" is a conclusion someone will act on.
+`evaluate_detections` refuses to score when the label file's `n_frames_total`
+disagrees with the probe's line count, *and* when the two disagree about which
+filename an index refers to (both files record the stem per frame; two
+different 858-frame folders would otherwise join cleanly and produce a
+plausible, wrong table). `parse_ground_truth` likewise rejects a label clicked
+at a resolution other than the one the document declares.
+
+**1. Extract the frames — this exact command:**
+
+```bash
+ffmpeg -i clip.mp4 -vf fps=25 /content/frames/%06d.jpg
+```
+
+The same command `research/setup.sh` prints and the same folder
+`tracklab -cn video_demo dataset.video_path=/content/frames` consumes, so the
+frames you label are the frames the probe sees. Label the *same folder* the
+probe runs on (copy it down, or run the identical command on the identical
+source file); re-encoding, a different `fps=`, `-q:v`, or a resize produce
+different pixels and a different frame count. 858 frames for the OFI clip.
+
+**2. Label — `tools/annotator.html`, "Ball ground truth" mode:**
+
+Double-click the file (no server, no install, no network; the frames never
+leave the machine). Choose the frames folder, set the stride (8 → ~107 of 858),
+and work through them:
+
+| key | |
+|---|---|
+| `←` `→` | previous / next sampled frame |
+| click | place the ball centre (coarse) |
+| click in the Zoom panel | place it precisely — the panel is locked on the point |
+| `shift`+`←→↑↓` | nudge the point 1 px |
+| `x` | ball not visible — a **label**, and it auto-advances |
+| `u` | undo the last label, wherever it was, and jump back to it |
+| `j` | jump to the next unlabelled frame |
+| `-` `+` | magnifier zoom |
+
+The magnifier and the zoom panel are not polish. At 1280×720 scaled to a laptop
+panel one screen pixel is ~1.4 native px and the ball is 4–10 px (§3): measured
+on a synthetic 9 px ball, an unaided click lands **~9 px** from the centre — a
+miss at any tolerance worth quoting — and the same click corrected in the zoom
+panel lands **~0.5 px** out. Without the zoom the labels would not be ground
+truth, they would be noise with a decimal point.
+
+Labels autosave to localStorage, keyed by a fingerprint of the frames
+themselves (count plus the first and last file's name/size/mtime) rather than
+by the folder name — §6.6 tells everyone to extract to `frames/`, so a
+name-based key would hand clip B clip A's labels. Import JSON resumes from an
+export, and can be imported before the folder is opened. Export writes
+`<clip>.ball-gt.json`
+(`ball-ground-truth/v1`): `n_frames_total`, `stride`, an explicit
+`resolution`, `sampled_indices` (what was offered — so skips are countable),
+and one `labels` entry per adjudicated frame, `status` `visible` (with `x`,`y`
+in native pixels) or `absent`. Mixed decoded resolutions block the export
+outright rather than emitting pixel labels with no stated pixel frame.
+
+**3. Run the probe** — §9.1, unchanged:
+
+```bash
+uv run --python .venv/bin/python research/ball_probe.py \
+    --frames /content/frames --out /content/ball_probe \
+    --weights pretrained_models/yolo/yolo11m.pt --imgsz 640 1280 --conf 0.05
+```
+
+**4. Evaluate:**
+
+```bash
+python -m pipeline.ball.evaluation ofi.ball-gt.json \
+    ball_probe_640.jsonl ball_probe_1280.jsonl --conf 0.1 0.2 0.3 0.4
+```
+
+which prints the §9.2 precision/recall table per confidence floor per
+inference size — **the 640-vs-1280 recall ratio that decides H1** (§9.5). Or
+from Python, `load_ground_truth` + `load_ball_probe` + `sweep`. Two knobs worth
+turning rather than accepting:
+
+- `--tolerance-px` (default 8, ~a ball diameter at the favourable framing).
+  WASB quotes soccer F1 at 4 px (§5.2); quote both if comparing to it.
+- `--selection` — `best` scores the highest-confidence candidate, the policy
+  `ingest.probe_to_samples` actually applies downstream. `any` credits a hit if
+  *any* candidate is on the ball. The gap between them is **selection** error
+  (we found the ball and picked confetti → fix with trajectory-gated selection,
+  §7.2) as opposed to **detection** error (never found → fix needs a better
+  detector, §7.4). Those are different proposals; do not average them into one
+  number.
+
+Comparison is bbox centre vs labelled centre. (ingest.py projects the bbox
+*bottom*-centre instead, because there the question is where the ball touches
+the ground, not whether it was found.)
 
 ## 7. Proposal, ranked by expected information (then improvement) per effort
 
@@ -508,8 +645,10 @@ run):
    with the interpolable/blackout split, per-hypothesis verdict table
    (§4 confirm/refute columns filled in), candidate-count distribution
    (the debris number), and frames 060/430/800's component breakdown.
-3. **Label ~100 random frames' ball centre** (§6.4, ~30 min, offline) →
-   real recall/precision per configuration; re-fit §6.2 ramps.
+3. **Label ~107 frames' ball centre** — every 8th frame of the 858, uniformly,
+   absences included (§6.4, ~30 min, offline: `tools/annotator.html` ball mode
+   → `python -m pipeline.ball.evaluation`, workflow in §6.6) → real
+   recall/precision per configuration; re-fit §6.2 ramps.
 4. **Decide** by the §7 ladder: rate ≥ ~50% with mostly-interpolable gaps at
    1280 → proposals 2–3 (patch + wire-in); rate materially better at 1280
    but concentrated near-framing → proposal 4 (fine-tune, keep 1280);

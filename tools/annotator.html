@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tactical Pattern Annotator</title>
+<title>Annotator — tactical patterns & ball ground truth</title>
 <style>
   :root {
     --bg: #14171c; --panel: #1d2129; --panel2: #232834; --text: #e6e9ef;
@@ -11,6 +11,8 @@
     --border: #313847;
   }
   * { box-sizing: border-box; }
+  /* .row's display:flex otherwise beats the UA sheet's [hidden] rule. */
+  [hidden] { display: none !important; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -65,12 +67,44 @@
     width: 100%; background: var(--panel2); color: var(--text); border: 1px solid var(--border);
     border-radius: 6px; padding: 6px 8px; font: inherit; resize: vertical; min-height: 34px;
   }
+  /* ---- mode switch ---- */
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; padding: 5px 12px; background: var(--panel2); }
+  .seg button.on { background: var(--accent); color: #fff; font-weight: 600; }
+  /* ---- ball mode ---- */
+  #view {
+    width: 100%; display: block; background: #000; border-radius: 8px; cursor: crosshair;
+  }
+  #mag {
+    position: fixed; display: none; pointer-events: none; z-index: 60;
+    border: 1px solid var(--accent); border-radius: 6px; background: #000;
+    box-shadow: 0 6px 22px rgba(0,0,0,.65); image-rendering: pixelated;
+  }
+  #refine {
+    width: 100%; display: block; background: #000; border-radius: 6px;
+    cursor: crosshair; image-rendering: pixelated;
+  }
+  .stat { font-variant-numeric: tabular-nums; }
+  .big { font-size: 15px; font-weight: 600; }
+  .warn { color: var(--red); font-weight: 600; }
+  .s-visible { background: #0f3322; color: var(--green); }
+  .s-absent { background: #3b1027; color: #ff7ab0; }
+  #ballRowsWrap { max-height: 40vh; overflow-y: auto; }
+  tr.here td { background: #2b3345; }
+  #ballDrop {
+    border: 2px dashed var(--border); border-radius: 8px; padding: 32px 20px;
+    text-align: center; color: var(--muted);
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>Tactical Pattern Annotator</h1>
-  <label class="kbd">match id <input type="text" id="matchId" size="22" placeholder="from filename"></label>
+  <h1>Annotator</h1>
+  <div class="seg" id="modeSwitch">
+    <button data-mode="tactical" class="on">Tactical patterns</button>
+    <button data-mode="ball">Ball ground truth</button>
+  </div>
+  <label class="kbd">match id <input type="text" id="matchId" size="20" placeholder="from filename"></label>
   <label class="kbd">annotator <input type="text" id="annotator" size="10" placeholder="name"></label>
   <div class="spacer"></div>
   <button id="importBtn">Import JSON</button>
@@ -79,7 +113,7 @@
 </header>
 
 <main>
-  <section>
+  <section class="m-tactical">
     <div id="dropzone">
       <p><strong>Open a match clip</strong> (mp4/webm — stays on your machine, nothing is uploaded)</p>
       <input type="file" id="videoFile" accept="video/*">
@@ -106,7 +140,7 @@
     <div id="status"></div>
   </section>
 
-  <section>
+  <section class="m-tactical">
     <div class="panel">
       <h2>New annotation</h2>
       <div class="row">
@@ -144,7 +178,85 @@
       </table>
     </div>
   </section>
+
+  <!-- ===================== ball ground-truth mode ===================== -->
+  <section class="m-ball" hidden>
+    <div id="ballDrop">
+      <p><strong>Open the folder of extracted frames</strong> — the same folder the probe
+      reads, so frame indices are the sorted position in it (nothing is uploaded).</p>
+      <div class="row" style="justify-content:center">
+        <button id="pickDir" class="primary">Choose frames folder…</button>
+        <button id="pickFiles">…or select the frame files</button>
+      </div>
+      <p class="kbd">Extract with <code>ffmpeg -i clip.mp4 -vf fps=25 frames/%06d.jpg</code>
+      and keep nothing else in the folder.</p>
+      <input type="file" id="frameDir" webkitdirectory directory multiple hidden>
+      <input type="file" id="frameFiles" accept="image/jpeg,image/png,image/bmp" multiple hidden>
+    </div>
+
+    <canvas id="view" hidden></canvas>
+    <div class="row" id="ballTransport" hidden>
+      <span class="mark stat big" id="progress">–</span>
+      <button id="prevBtn">← prev</button>
+      <button id="nextBtn">next →</button>
+      <button id="absentBtn">Ball not visible (x)</button>
+      <button id="undoBtn">Undo (u)</button>
+      <button id="jumpBtn">Next unlabelled (j)</button>
+      <span class="kbd">
+        <kbd>←</kbd><kbd>→</kbd> frame &nbsp;<kbd>x</kbd> not visible &nbsp;<kbd>u</kbd> undo
+        &nbsp;<kbd>j</kbd> next unlabelled &nbsp;<kbd>shift</kbd>+<kbd>←→↑↓</kbd> nudge 1 px
+        &nbsp;<kbd>-</kbd><kbd>+</kbd> magnifier
+      </span>
+    </div>
+    <div id="ballStatus"></div>
+  </section>
+
+  <section class="m-ball" hidden>
+    <div class="panel">
+      <h2>Frame</h2>
+      <div class="row">
+        <span class="mark stat" id="frameName">–</span>
+        <span class="mark stat" id="frameIndex">index –</span>
+        <span class="mark stat" id="frameRes">–</span>
+      </div>
+      <div class="row">
+        <span class="mark stat" id="pointOut">no click yet</span>
+        <span class="tag" id="statusTag" hidden></span>
+      </div>
+      <div class="row">
+        stride <input type="text" id="stride" size="3" value="8">
+        <button id="applyStride">apply</button>
+        <span class="kbd" id="strideNote"></span>
+      </div>
+      <div class="row">
+        <label class="kbd">clip id <input type="text" id="clipId" size="18" placeholder="from folder name"></label>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <h2>Zoom — click here to place the point precisely</h2>
+      <canvas id="refine" width="320" height="320"></canvas>
+      <div class="kbd" style="margin-top:6px">
+        Locked on the current point (or the last cursor position). One click here
+        moves the point by <span class="stat" id="refineRes">–</span> px.
+        The floating magnifier follows the cursor over the frame above.
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <h2>Labels (<span id="ballCount">0</span> of <span id="ballSampled">0</span>)</h2>
+      <div class="row kbd" id="ballTally">–</div>
+      <div id="ballRowsWrap">
+        <table>
+          <thead><tr><th>#</th><th>index</th><th>frame</th><th>status</th><th>x, y</th><th></th></tr></thead>
+          <tbody id="ballRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 </main>
+
+<canvas id="mag" width="260" height="260"></canvas>
 
 <script>
 "use strict";
@@ -155,6 +267,7 @@ const video = $("video");
 let events = [];        // {pattern, team, start, end, confidence, period, metadata:{note}}
 let markIn = null, markOut = null;
 let selectedPattern = PATTERNS[0];
+let mode = "tactical";  // "tactical" | "ball" — two jobs, one file, no shared state
 
 // ---- helpers ---------------------------------------------------------------
 function fmt(t) {
@@ -163,8 +276,9 @@ function fmt(t) {
   return `${m}:${s}`;
 }
 function status(msg, ok = true) {
-  $("status").textContent = msg;
-  $("status").style.color = ok ? "var(--muted)" : "var(--red)";
+  const el = $(mode === "ball" ? "ballStatus" : "status");
+  el.textContent = msg;
+  el.style.color = ok ? "var(--muted)" : "var(--red)";
 }
 function storageKey() { return "annotator:" + ($("matchId").value || "untitled"); }
 function autosave() {
@@ -288,7 +402,14 @@ function exportJson() {
   a.click(); URL.revokeObjectURL(a.href);
   status(`Exported ${events.length} annotation(s).`);
 }
-$("exportBtn").addEventListener("click", exportJson);
+function download(doc, filename) {
+  const blob = new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click(); URL.revokeObjectURL(a.href);
+}
+$("exportBtn").addEventListener("click", () => (mode === "ball" ? exportBallJson() : exportJson()));
 
 $("importBtn").addEventListener("click", () => $("importFile").click());
 $("importFile").addEventListener("change", (e) => {
@@ -297,7 +418,17 @@ $("importFile").addEventListener("change", (e) => {
   file.text().then((text) => {
     try {
       const doc = JSON.parse(text);
+      if (doc.schema === BALL_SCHEMA || Array.isArray(doc.labels)) {
+        // Validate before switching: a rejected import must not also strand the
+        // user in a mode they never asked for, with the error on the other
+        // mode's status line.
+        validateBallDoc(doc);
+        setMode("ball");
+        importBallDoc(doc, file.name);
+        return;
+      }
       if (!Array.isArray(doc.events)) throw new Error("no events array");
+      setMode("tactical");
       events = doc.events.map((ev) => ({
         pattern: ev.pattern, team: ev.team || "unknown",
         start: ev.start, end: ev.end,
@@ -321,6 +452,7 @@ $("importFile").addEventListener("change", (e) => {
 document.addEventListener("keydown", (e) => {
   const tag = document.activeElement && document.activeElement.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (mode === "ball") return ballKey(e);
   if (video.hidden) return;
   const key = e.key;
   if (key === " ") { e.preventDefault(); video.paused ? video.play() : video.pause(); }
@@ -333,6 +465,618 @@ document.addEventListener("keydown", (e) => {
   else if (key >= "1" && key <= "6") { selectPattern(PATTERNS[parseInt(key, 10) - 1]); }
   else if (key === "Enter") { e.preventDefault(); addAnnotation(); }
 });
+
+// ============================================================================
+// BALL GROUND-TRUTH MODE
+//
+// A different job from the tactical mode above and it shares nothing with it
+// but the shell: producing pixel-space ball ground truth so detection recall
+// and precision can be *measured* against research/ball_probe.py output
+// (docs/ball-tracking-design.md §6.4/§6.6) instead of inferred from synthetic
+// fixtures. Three things here are load-bearing rather than cosmetic:
+//
+//   1. THE JOIN KEY IS SORTED POSITION IN THE FRAMES FOLDER. ball_probe.py does
+//      `sorted(p for p in Path(frames).iterdir() if p.suffix.lower() in
+//      FRAME_EXTS)` and enumerates from 0. This file reproduces that exactly:
+//      same extension set, same non-recursive scope, plain code-unit name sort
+//      (NOT localeCompare, which collates differently and would silently shift
+//      every index). Any drift here scores a shifted join and reads as a bad
+//      detector.
+//   2. UNIFORM SAMPLING, NOT CHERRY-PICKING. Frames come from a fixed stride
+//      over the whole folder. Labelling only frames where the ball is easy to
+//      see measures the annotator, not the detector: recall would be
+//      meaningless.
+//   3. "BALL NOT VISIBLE" IS A LABEL, NOT A SKIP. An absent-ball frame is
+//      ground truth — any detection there is a false positive, and that is the
+//      only measurement that prices the confetti-debris hypothesis (design §4,
+//      H2). Skips stay out of the labels array; absences go in with
+//      status:"absent". pipeline/ball/evaluation.py keeps the distinction.
+//
+// Coordinates are the frame's native decoded pixels, and the export states the
+// resolution — never pitch coordinates, which would fold calibration error into
+// a detector measurement.
+// ============================================================================
+const BALL_SCHEMA = "ball-ground-truth/v1";
+const FRAME_EXTS = [".jpg", ".jpeg", ".png", ".bmp"];  // == ball_probe.py FRAME_EXTS
+// 8x over a 320 px canvas = a 40 px native field of view, ~±20 px around the
+// coarse click. Tighter zoom looks more impressive and is worse: an unaided
+// click at this framing lands 5-10 px out (measured), and a field of view that
+// narrow can leave the ball's centre outside the panel you are meant to fix it
+// in. Precision per displayed pixel is still ~0.12 px — an order of magnitude
+// finer than the hand that is clicking.
+const REFINE_ZOOM = 8;
+const MAG_MIN = 2, MAG_MAX = 32;
+const CACHE_MAX = 8;
+
+const view = $("view");
+const mag = $("mag");
+const refine = $("refine");
+
+let frameFiles = [];      // sorted + filtered: array position == probe frame index
+let folderName = "";
+let sampled = [];         // absolute frame indices offered under the stride
+let cursor = 0;           // position within `sampled`
+let labels = new Map();   // absolute index -> {status, x, y, width, height, frame}
+let undoStack = [];       // {index, prev} — prev null means "was unlabelled"
+let res = null;           // decoded resolution of the first frame we opened
+let resMixed = false;
+let magZoom = 8;
+let curImg = null, curIndex = -1, lastCursorPx = null;
+const cache = new Map();  // index -> {img, url, p}
+let showToken = 0;
+let clipId = "";          // ball mode's own id — NEVER the shared #matchId field
+let pendingImport = null; // a doc imported before its frames folder was opened
+
+// ---- mode switch -----------------------------------------------------------
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll("#modeSwitch button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.mode === m)
+  );
+  document.querySelectorAll(".m-tactical").forEach((s) => (s.hidden = m !== "tactical"));
+  document.querySelectorAll(".m-ball").forEach((s) => (s.hidden = m !== "ball"));
+  if (m !== "ball") mag.style.display = "none";
+}
+document.querySelectorAll("#modeSwitch button").forEach((b) =>
+  b.addEventListener("click", () => setMode(b.dataset.mode))
+);
+
+// ---- loading the frames folder ---------------------------------------------
+$("pickDir").addEventListener("click", () => $("frameDir").click());
+$("pickFiles").addEventListener("click", () => $("frameFiles").click());
+$("frameDir").addEventListener("change", (e) => loadFrames(e.target.files));
+$("frameFiles").addEventListener("change", (e) => loadFrames(e.target.files));
+
+function loadFrames(fileList) {
+  const all = Array.from(fileList);
+  if (!all.length) return;
+  // Path(".jpg").suffix is "" — a dotfile has no suffix — so the probe would
+  // skip a file named exactly ".jpg" and endsWith() alone would not. The whole
+  // join rides on this filter matching, edge cases included.
+  const isFrame = (f) => {
+    const n = f.name.toLowerCase();
+    return FRAME_EXTS.some((ext) => n.endsWith(ext) && n.length > ext.length);
+  };
+  // Non-recursive, exactly like Path.iterdir(): a file one level down is a file
+  // the probe never sees, so counting it here would shift every index.
+  const depth = (f) => (f.webkitRelativePath ? f.webkitRelativePath.split("/").length : 2);
+  const images = all.filter(isFrame);
+  const picked = images.filter((f) => depth(f) <= 2);
+  if (!picked.length) {
+    return status(`No ${FRAME_EXTS.join("/")} frames in that selection.`, false);
+  }
+  // Plain code-unit ordering — the comparison Python's sorted() applies to
+  // same-directory paths. localeCompare would reorder and break the join.
+  picked.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+
+  const rel = picked[0].webkitRelativePath || "";
+  folderName = rel ? rel.split("/")[0] : "frames";
+  frameFiles = picked;
+  clearCache();
+  curImg = null; curIndex = -1; res = null; resMixed = false;
+  labels = new Map(); undoStack = [];
+  clipId = folderName;  // a restore or a pending import may override below
+  $("clipId").value = clipId;
+
+  $("ballDrop").style.display = "none";
+  view.hidden = false; $("ballTransport").hidden = false;
+
+  const skippedNote = images.length > picked.length
+    ? ` (ignored ${images.length - picked.length} image(s) in subfolders — the probe does not see those)`
+    : "";
+  // A doc imported before the folder was open wins over autosave — the user
+  // just asked for it, and it would otherwise be destroyed by the very step
+  // the import message tells them to take next.
+  if (pendingImport) {
+    const pending = pendingImport;
+    pendingImport = null;
+    rebuildSample();
+    show(0);
+    applyBallDoc(pending);
+    return;
+  }
+  const restored = restoreBall();
+  rebuildSample();
+  show(0);
+  status(restored
+    ? `${restored} label(s) restored from autosave. ${frameFiles.length} frames in ${folderName}/${skippedNote}`
+    : `${frameFiles.length} frames in ${folderName}/ — index 0 is ${picked[0].name}${skippedNote}`);
+}
+
+function stem(name) { return name.replace(/\.[^.]+$/, ""); }
+function strideValue() {
+  const v = parseInt($("stride").value, 10);
+  return Number.isFinite(v) && v >= 1 ? v : 8;
+}
+function rebuildSample() {
+  const stride = strideValue();
+  $("stride").value = stride;
+  sampled = [];
+  for (let i = 0; i < frameFiles.length; i += stride) sampled.push(i);
+  cursor = Math.min(cursor, Math.max(0, sampled.length - 1));
+  $("strideNote").textContent =
+    `${sampled.length} of ${frameFiles.length} frames — every ${stride}${stride === 1 ? "st" : "th"}`;
+  renderBall();
+}
+$("applyStride").addEventListener("click", () => { rebuildSample(); show(0); });
+
+// ---- frame decoding + cache -------------------------------------------------
+function loadImage(idx) {
+  if (cache.has(idx)) return cache.get(idx).p;
+  const url = URL.createObjectURL(frameFiles[idx]);
+  const img = new Image();
+  const p = new Promise((resolve, reject) => {
+    img.onload = () => resolve(img);
+    img.onerror = () => {
+      // Drop the failed entry: a cached rejected promise would make this frame
+      // permanently unlabellable for the rest of the session, with no way back
+      // short of a reload.
+      const entry = cache.get(idx);
+      if (entry && entry.p === p) { URL.revokeObjectURL(entry.url); cache.delete(idx); }
+      reject(new Error("could not decode " + frameFiles[idx].name));
+    };
+  });
+  img.src = url;
+  cache.set(idx, { img, url, p });
+  evict();
+  return p;
+}
+function prefetch(k) {
+  // Fire-and-forget: a prefetch that fails is not an error the user needs, but
+  // an unhandled rejection is noise in the one console they might look at.
+  if (k < sampled.length) loadImage(sampled[k]).catch(() => {});
+}
+function evict() {
+  if (cache.size <= CACHE_MAX) return;
+  const here = sampled[cursor] != null ? sampled[cursor] : 0;
+  const order = Array.from(cache.keys()).sort((a, b) => Math.abs(b - here) - Math.abs(a - here));
+  while (cache.size > CACHE_MAX) {
+    const i = order.shift();
+    URL.revokeObjectURL(cache.get(i).url);
+    cache.delete(i);
+  }
+}
+function clearCache() {
+  cache.forEach((e) => URL.revokeObjectURL(e.url));
+  cache.clear();
+}
+
+async function show(k) {
+  if (!sampled.length) return;
+  cursor = Math.max(0, Math.min(sampled.length - 1, k));
+  const idx = sampled[cursor];
+  const token = ++showToken;
+  let img;
+  try { img = await loadImage(idx); }
+  catch (err) { return status(err.message, false); }
+  if (token !== showToken) return;  // navigated on while this frame decoded
+
+  curImg = img; curIndex = idx;
+  const w = img.naturalWidth, h = img.naturalHeight;
+  if (!res) res = { width: w, height: h };
+  else if (res.width !== w || res.height !== h) resMixed = true;
+  view.width = w; view.height = h;
+
+  drawView(); drawRefine(); renderBall(); updateFrameInfo();
+  prefetch(cursor + 1); prefetch(cursor + 2);
+}
+$("nextBtn").addEventListener("click", () => show(cursor + 1));
+$("prevBtn").addEventListener("click", () => show(cursor - 1));
+
+function updateFrameInfo() {
+  const lab = labels.get(curIndex);
+  $("progress").textContent = `frame ${cursor + 1} of ${sampled.length}`;
+  $("frameName").textContent = frameFiles[curIndex].name;
+  $("frameIndex").textContent = `index ${curIndex}`;
+  $("frameRes").textContent = `${view.width}×${view.height}`;
+  $("frameRes").className = resMixed ? "mark stat warn" : "mark stat";
+  $("pointOut").textContent = lab && lab.status === "visible"
+    ? `x ${lab.x.toFixed(2)}  y ${lab.y.toFixed(2)} px`
+    : "no click yet";
+  const tag = $("statusTag");
+  if (!lab) { tag.hidden = true; }
+  else {
+    tag.hidden = false;
+    tag.className = "tag s-" + lab.status;
+    tag.textContent = lab.status === "visible" ? "ball marked" : "ball not visible";
+  }
+  if (resMixed) {
+    status("Frames have different decoded resolutions — export is blocked until the "
+      + "folder is re-extracted at one resolution. Pixel labels are meaningless "
+      + "without a single stated pixel frame.", false);
+  }
+}
+
+// ---- drawing ----------------------------------------------------------------
+function drawView() {
+  const ctx = view.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(curImg, 0, 0);
+  const lab = labels.get(curIndex);
+  if (lab && lab.status === "visible") {
+    ctx.strokeStyle = "#4f8cff"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(lab.x, lab.y, 12, 0, 2 * Math.PI); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(lab.x - 22, lab.y); ctx.lineTo(lab.x - 16, lab.y);
+    ctx.moveTo(lab.x + 16, lab.y); ctx.lineTo(lab.x + 22, lab.y);
+    ctx.moveTo(lab.x, lab.y - 22); ctx.lineTo(lab.x, lab.y - 16);
+    ctx.moveTo(lab.x, lab.y + 16); ctx.lineTo(lab.x, lab.y + 22);
+    ctx.stroke();
+  } else if (lab && lab.status === "absent") {
+    ctx.fillStyle = "rgba(229,83,75,.85)";
+    ctx.fillRect(0, 0, 250, 34);
+    ctx.fillStyle = "#fff"; ctx.font = "bold 18px sans-serif";
+    ctx.fillText("BALL NOT VISIBLE", 12, 24);
+  }
+}
+
+function crosshair(ctx, x, y, colour, gap) {
+  ctx.strokeStyle = colour; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x - 1000, y); ctx.lineTo(x - gap, y);
+  ctx.moveTo(x + gap, y); ctx.lineTo(x + 1000, y);
+  ctx.moveTo(x, y - 1000); ctx.lineTo(x, y - gap);
+  ctx.moveTo(x, y + gap); ctx.lineTo(x, y + 1000);
+  ctx.stroke();
+}
+
+// The magnifier is the whole reason this mode is usable: at 1280x720 scaled to
+// fit a laptop panel, one screen pixel is ~1.5 native px and the ball is 4-10 px
+// (design §3). Clicking it unaided is not a thing a person can do.
+function drawMag(p) {
+  if (!curImg) return;
+  const ctx = mag.getContext("2d");
+  const span = mag.width / magZoom;  // native px across the lens
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, mag.width, mag.height);
+  ctx.drawImage(curImg, p.x - span / 2, p.y - span / 2, span, span, 0, 0, mag.width, mag.height);
+  crosshair(ctx, mag.width / 2, mag.height / 2, "rgba(79,140,255,.9)", 6);
+}
+function drawRefine() {
+  const ctx = refine.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, refine.width, refine.height);
+  if (!curImg) return;
+  const c = refineCentre();
+  const span = refine.width / REFINE_ZOOM;
+  const x0 = c.x - span / 2, y0 = c.y - span / 2;
+  ctx.drawImage(curImg, x0, y0, span, span, 0, 0, refine.width, refine.height);
+  const toRefine = (nx, ny) => ({
+    x: ((nx - x0) / span) * refine.width,
+    y: ((ny - y0) / span) * refine.height,
+  });
+  crosshair(ctx, refine.width / 2, refine.height / 2, "rgba(139,147,167,.5)", 10);
+  const lab = labels.get(curIndex);
+  if (lab && lab.status === "visible") {
+    const p = toRefine(lab.x, lab.y);
+    crosshair(ctx, p.x, p.y, "rgba(79,140,255,.95)", 8);
+    // A ring the size of a real ball here (~9 px at the near-goal framing,
+    // design §3): it is the sanity check that the point is on a ball rather
+    // than on a piece of confetti.
+    ctx.strokeStyle = "rgba(79,140,255,.7)"; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4.5 * (refine.width / span), 0, 2 * Math.PI);
+    ctx.stroke();
+  }
+  const shown = refine.clientWidth || refine.width;
+  $("refineRes").textContent = (span / shown).toFixed(2);
+}
+function refineCentre() {
+  const lab = labels.get(curIndex);
+  if (lab && lab.status === "visible") return { x: lab.x, y: lab.y };
+  if (lastCursorPx) return lastCursorPx;
+  return { x: view.width / 2, y: view.height / 2 };
+}
+
+// ---- pointing ---------------------------------------------------------------
+function toNative(el, e) {
+  const r = el.getBoundingClientRect();
+  return {
+    x: ((e.clientX - r.left) / r.width) * el.width,
+    y: ((e.clientY - r.top) / r.height) * el.height,
+  };
+}
+view.addEventListener("mousemove", (e) => {
+  if (!curImg) return;
+  lastCursorPx = toNative(view, e);
+  drawMag(lastCursorPx);
+  mag.style.display = "block";
+  const pad = 24;
+  const left = e.clientX + pad + mag.width > window.innerWidth ? e.clientX - pad - mag.width : e.clientX + pad;
+  const top = e.clientY - pad - mag.height < 0 ? e.clientY + pad : e.clientY - pad - mag.height;
+  mag.style.left = left + "px"; mag.style.top = top + "px";
+  drawRefine();
+});
+view.addEventListener("mouseleave", () => { mag.style.display = "none"; });
+view.addEventListener("click", (e) => {
+  if (!curImg) return;
+  const p = toNative(view, e);
+  setPoint(p.x, p.y);
+});
+// Second click, but in the zoomed view: this is the "click roughly, then place
+// it exactly" half of the answer to a 4 px target.
+refine.addEventListener("click", (e) => {
+  if (!curImg) return;
+  const c = refineCentre();
+  const span = refine.width / REFINE_ZOOM;
+  const p = toNative(refine, e);
+  setPoint(c.x - span / 2 + (p.x / refine.width) * span,
+           c.y - span / 2 + (p.y / refine.height) * span);
+});
+
+function round2(v) { return Math.round(v * 100) / 100; }
+function pushUndo(index) {
+  const prev = labels.get(index);
+  undoStack.push({ index, prev: prev ? Object.assign({}, prev) : null });
+  if (undoStack.length > 200) undoStack.shift();
+}
+function setPoint(x, y) {
+  if (curIndex < 0) return;
+  pushUndo(curIndex);
+  labels.set(curIndex, {
+    status: "visible",
+    x: round2(Math.max(0, Math.min(view.width, x))),
+    y: round2(Math.max(0, Math.min(view.height, y))),
+    width: view.width, height: view.height,
+    frame: stem(frameFiles[curIndex].name),
+  });
+  afterLabel();
+}
+function markAbsent() {
+  if (curIndex < 0) return;
+  pushUndo(curIndex);
+  labels.set(curIndex, {
+    status: "absent", x: null, y: null,
+    width: view.width, height: view.height,
+    frame: stem(frameFiles[curIndex].name),
+  });
+  afterLabel();
+  // Nothing to refine on an absent frame, so move on: this is the key that
+  // makes 100 frames in half an hour arithmetic rather than aspiration.
+  if (cursor + 1 < sampled.length) show(cursor + 1);
+}
+function nudge(key) {
+  const lab = labels.get(curIndex);
+  if (!lab || lab.status !== "visible") return;
+  const dx = key === "ArrowLeft" ? -1 : key === "ArrowRight" ? 1 : 0;
+  const dy = key === "ArrowUp" ? -1 : key === "ArrowDown" ? 1 : 0;
+  setPoint(lab.x + dx, lab.y + dy);
+}
+function afterLabel() {
+  drawView(); drawRefine(); renderBall(); updateFrameInfo(); autosaveBall();
+}
+function undo() {
+  const last = undoStack.pop();
+  if (!last) return status("Nothing to undo.");
+  if (last.prev) labels.set(last.index, last.prev); else labels.delete(last.index);
+  const at = sampled.indexOf(last.index);
+  if (at >= 0 && at !== cursor) { show(at).then(autosaveBall); }
+  else { afterLabel(); }
+  status(`Undid the label on index ${last.index}.`);
+}
+function jumpUnlabelled() {
+  for (let d = 1; d <= sampled.length; d++) {
+    const k = (cursor + d) % sampled.length;
+    if (!labels.has(sampled[k])) return show(k);
+  }
+  status("Every sampled frame is labelled.");
+}
+function setMagZoom(z) {
+  magZoom = Math.max(MAG_MIN, Math.min(MAG_MAX, z));
+  if (lastCursorPx) drawMag(lastCursorPx);
+  status(`Magnifier ${magZoom}×.`);
+}
+$("absentBtn").addEventListener("click", markAbsent);
+$("undoBtn").addEventListener("click", undo);
+$("jumpBtn").addEventListener("click", jumpUnlabelled);
+
+function ballKey(e) {
+  if (!frameFiles.length) return;
+  const k = e.key;
+  if (e.shiftKey && k.startsWith("Arrow")) { e.preventDefault(); return nudge(k); }
+  if (k === "ArrowRight") { e.preventDefault(); show(cursor + 1); }
+  else if (k === "ArrowLeft") { e.preventDefault(); show(cursor - 1); }
+  else if (k === "x" || k === "X") { markAbsent(); }
+  else if (k === "u" || k === "U") { undo(); }
+  else if (k === "j" || k === "J") { jumpUnlabelled(); }
+  else if (k === "+" || k === "=") { setMagZoom(magZoom * 2); }
+  else if (k === "-" || k === "_") { setMagZoom(magZoom / 2); }
+}
+
+// ---- table ------------------------------------------------------------------
+function renderBall() {
+  const tbody = $("ballRows");
+  tbody.innerHTML = "";
+  const indices = Array.from(labels.keys()).sort((a, b) => a - b);
+  indices.forEach((idx) => {
+    const lab = labels.get(idx);
+    const tr = document.createElement("tr");
+    tr.className = "evt" + (idx === curIndex ? " here" : "");
+    const at = sampled.indexOf(idx);
+    tr.innerHTML =
+      `<td>${at >= 0 ? at + 1 : "–"}</td><td>${idx}</td><td>${lab.frame}</td>` +
+      `<td><span class="tag s-${lab.status}">${lab.status}</span></td>` +
+      `<td>${lab.status === "visible" ? lab.x.toFixed(1) + ", " + lab.y.toFixed(1) : "–"}</td>`;
+    const td = document.createElement("td");
+    const del = document.createElement("button");
+    del.className = "del"; del.textContent = "✕"; del.title = "clear this label";
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      pushUndo(idx); labels.delete(idx);
+      renderBall(); if (idx === curIndex) afterLabel(); else autosaveBall();
+    });
+    td.appendChild(del); tr.appendChild(td);
+    tr.addEventListener("click", () => { const p = sampled.indexOf(idx); if (p >= 0) show(p); });
+    tbody.appendChild(tr);
+  });
+  const visible = indices.filter((i) => labels.get(i).status === "visible").length;
+  const absent = indices.length - visible;
+  const remaining = sampled.filter((i) => !labels.has(i)).length;
+  $("ballCount").textContent = indices.length;
+  $("ballSampled").textContent = sampled.length;
+  $("ballTally").textContent =
+    `${visible} ball marked · ${absent} not visible · ${remaining} unlabelled`;
+}
+
+// ---- autosave / export / import ---------------------------------------------
+// The autosave key must identify the CLIP, and the folder name cannot: §6.6
+// tells everyone to extract to `frames/`, and the multi-file path has no folder
+// name at all — so every clip would share one key and clip B would silently
+// restore clip A's labels onto its own pixels. Fingerprint the actual bytes
+// instead: count, plus name/size/mtime of the first and last frame. Two
+// extractions of the same folder agree; two different clips do not.
+function ballKeyName() {
+  const n = frameFiles.length;
+  if (!n) return "annotator:ball:none";
+  const sig = (f) => `${f.name}:${f.size}:${f.lastModified}`;
+  return `annotator:ball:${folderName}#${n}#${sig(frameFiles[0])}#${sig(frameFiles[n - 1])}`;
+}
+function labelArray() {
+  return Array.from(labels.keys()).sort((a, b) => a - b).map((i) => {
+    const l = labels.get(i);
+    return {
+      index: i, frame: l.frame, status: l.status, x: l.x, y: l.y,
+      width: l.width, height: l.height,
+    };
+  });
+}
+function autosaveBall() {
+  if (!frameFiles.length) return;
+  try {
+    localStorage.setItem(ballKeyName(), JSON.stringify({
+      schema: BALL_SCHEMA, clip_id: clipId,
+      annotator: $("annotator").value, stride: strideValue(),
+      resolution: res, labels: labelArray(), saved: new Date().toISOString(),
+    }));
+  } catch (e) { /* storage full/blocked: export still works */ }
+}
+function restoreBall() {
+  const saved = localStorage.getItem(ballKeyName());
+  if (!saved) return 0;
+  try {
+    const data = JSON.parse(saved);
+    validateBallDoc({ schema: BALL_SCHEMA, labels: data.labels || [] });
+    (data.labels || []).forEach((l) => labels.set(l.index, {
+      status: l.status, x: l.x, y: l.y, width: l.width, height: l.height, frame: l.frame,
+    }));
+    if (data.stride) $("stride").value = data.stride;
+    if (data.clip_id) { clipId = data.clip_id; $("clipId").value = clipId; }
+    if (data.annotator && !$("annotator").value) $("annotator").value = data.annotator;
+    return labels.size;
+  } catch (e) {
+    labels = new Map();  // a half-restored session is worse than a fresh one
+    return 0;
+  }
+}
+
+function exportBallJson() {
+  if (!frameFiles.length) return status("Open a frames folder first.", false);
+  if (!res || resMixed) {
+    return status("Frames decoded at more than one resolution — refusing to export "
+      + "pixel labels without a single stated pixel frame. Re-extract the folder "
+      + "at one resolution; your labels stay autosaved.", false);
+  }
+  // Sampled ∪ labelled: if the stride changed mid-session, labels made under the
+  // old one are still real labels, and n_sampled must stay >= n_labelled for the
+  // evaluator's skip arithmetic to hold.
+  const offered = new Set(sampled);
+  labels.forEach((_, i) => offered.add(i));
+  const doc = {
+    schema: BALL_SCHEMA,
+    clip_id: $("clipId").value.trim() || folderName || "untitled",
+    source: "manual-annotation",
+    annotator: $("annotator").value || undefined,
+    exported_at: new Date().toISOString(),
+    frames_folder: folderName,
+    n_frames_total: frameFiles.length,
+    stride: strideValue(),
+    resolution: { width: res.width, height: res.height },
+    sampled_indices: Array.from(offered).sort((a, b) => a - b),
+    labels: labelArray(),
+  };
+  download(doc, doc.clip_id + ".ball-gt.json");
+  status(`Exported ${doc.labels.length} label(s) at ${res.width}×${res.height}, `
+    + `frame indices over ${frameFiles.length} frames in ${folderName}/.`);
+}
+
+// Throws on anything malformed, mutates nothing — so the caller can reject an
+// import without having half-applied it.
+function validateBallDoc(doc) {
+  if (doc.schema !== BALL_SCHEMA) throw new Error(`not a ${BALL_SCHEMA} document`);
+  if (!Array.isArray(doc.labels)) throw new Error("no labels array");
+  for (const l of doc.labels) {
+    if (!Number.isInteger(l.index)) {
+      throw new Error(`label ${JSON.stringify(l)}: index must be an integer`);
+    }
+    if (l.status !== "visible" && l.status !== "absent") {
+      throw new Error(`label at index ${l.index}: status must be visible or absent`);
+    }
+    if (l.status === "visible" && !(typeof l.x === "number" && typeof l.y === "number")) {
+      throw new Error(`label at index ${l.index}: status visible needs numeric x and y`);
+    }
+  }
+}
+
+function importBallDoc(doc, filename) {
+  validateBallDoc(doc);
+  if (!frameFiles.length) {
+    // Hold it: loadFrames resets `labels`, so applying now and telling the user
+    // to open the folder next would delete exactly what we just imported.
+    pendingImport = { doc, filename };
+    if (doc.clip_id) { clipId = doc.clip_id; }
+    renderBall();
+    return status(`Read ${doc.labels.length} label(s) from ${filename} — now open the `
+      + `frames folder they were made from (${doc.frames_folder || "?"}, `
+      + `${doc.n_frames_total || "?"} frames) and they will load with it.`);
+  }
+  applyBallDoc({ doc, filename });
+}
+
+function applyBallDoc({ doc, filename }) {
+  if (doc.n_frames_total && frameFiles.length && doc.n_frames_total !== frameFiles.length) {
+    // Refuse rather than import-then-warn: these labels index a different
+    // folder, and autosaving them here would corrupt this folder's session too.
+    return status(`Not importing ${filename}: its labels were made over `
+      + `${doc.n_frames_total} frames and this folder has ${frameFiles.length}. `
+      + `The frame index is sorted position in the folder, so every label would `
+      + `point at a different frame. Open the folder they were made from.`, false);
+  }
+  labels = new Map();
+  undoStack = [];
+  doc.labels.forEach((l) => labels.set(l.index, {
+    status: l.status,
+    x: l.x != null ? l.x : null,
+    y: l.y != null ? l.y : null,
+    width: l.width, height: l.height, frame: l.frame,
+  }));
+  if (doc.stride) $("stride").value = doc.stride;
+  if (doc.clip_id) { clipId = doc.clip_id; $("clipId").value = clipId; }
+  if (doc.annotator) $("annotator").value = doc.annotator;
+  rebuildSample();
+  show(cursor);
+  autosaveBall();
+  status(`Imported ${labels.size} label(s) from ${filename}.`);
+}
 </script>
 </body>
 </html>

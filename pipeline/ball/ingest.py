@@ -37,14 +37,22 @@ Matrix = Sequence[Sequence[float]]
 
 @dataclass(frozen=True)
 class ProbeFrame:
-    """One frame of raw probe output: every candidate, in pixel space."""
+    """One frame of raw probe output: every candidate, in pixel space.
+
+    ``frame`` is the source filename stem the probe recorded. Nothing here uses
+    it — the index is the join key — but carrying it lets a consumer *check*
+    the join instead of trusting it (evaluation.py does), which is worth a
+    string per frame given that a silently shifted index is indistinguishable
+    from a broken detector.
+    """
 
     index: int
     boxes: Tuple[Tuple[float, float, float, float, float], ...]  # (l, t, r, b, conf)
+    frame: Optional[str] = None
 
 
 def load_ball_probe(path: str) -> List[ProbeFrame]:
-    """Read ball_probe JSONL: one line per frame, {"index", "balls": [[l,t,r,b,conf]..]}."""
+    """Read ball_probe JSONL: one line per frame, {"index", "frame", "balls": [[l,t,r,b,conf]..]}."""
     frames: List[ProbeFrame] = []
     with open(path) as f:
         for line in f:
@@ -56,6 +64,7 @@ def load_ball_probe(path: str) -> List[ProbeFrame]:
                 ProbeFrame(
                     index=int(rec["index"]),
                     boxes=tuple(tuple(float(v) for v in b) for b in rec.get("balls", [])),
+                    frame=rec.get("frame"),
                 )
             )
     frames.sort(key=lambda fr: fr.index)
