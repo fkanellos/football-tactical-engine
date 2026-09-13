@@ -40,7 +40,13 @@ experiment_name: "video-demo"
 data_dir: "${project_dir}/data"
 model_dir: "${project_dir}/pretrained_models"
 num_cores: 4
-state: {save_file: null, load_file: null}
+# save_file was null, which is why "real tracking output has not been exported to
+# disk yet" (STATUS.md) was true for two months: every run rendered an annotated
+# video and threw the tracking state away. This is the single line standing
+# between the project and its first real tactical data —
+# pipeline/patterns/tracking.py::load_tracklab_states() cannot be written without
+# a file to write it against. Verify the produced filename on the first run.
+state: {save_file: "states.pklz", load_file: null}
 visualization: {cfg: {save_videos: True}}
 project_dir: "${hydra:runtime.cwd}"
 hydra: {output_subdir: "configs", job: {chdir: True}, run: {dir: "outputs/${experiment_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}"}}
