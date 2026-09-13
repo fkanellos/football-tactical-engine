@@ -82,6 +82,32 @@ Bounds, because the table is quotable and these are not: 102 labels and 15–31 
 A clean-pitch control passage (BvB–PSG, identical 1280×720/25 fps, cut-verified) is extracted
 and probed, pending labels.
 
+### Shot-boundary detection, built and validated on real broadcast (2026-09-13)
+
+`pipeline/video/` closes red-team §1.1/§3.1: the batch stack asserted everywhere that
+"broadcast cuts leave gaps in the frame stream" and **nothing produced those gaps**. Now
+something does. 32 tests; pure stdlib (the decode half lives in
+`research/frame_signatures.py` and uses ffmpeg raw bytes — no numpy, PIL, or OpenCV).
+
+Measured over the full BvB–PSG broadcast (100 min, 150,455 frames):
+
+| | cuts | one every |
+|---|---|---|
+| ffmpeg scene filter | 340 | 17.7 s |
+| `pipeline/video/shots.py` | 525 | 11.5 s |
+
+93.5% agreement on ffmpeg's calls. Three of our 209 extra calls were sampled and eyeballed:
+all genuine cuts ffmpeg missed (close-up→wide mid-play, a shot change during a run, a
+star-wipe into a replay). Neither tool is ground truth — but **a randomly chosen 34-second
+broadcast clip spans two or three shot changes**, which is the number that matters: every
+passage fed to the pipeline must be cut inside a verified continuous shot, and the OFI clip
+all our measurements rest on was single-shot by luck.
+
+Known limitation, tested and pinned rather than hidden: **slow dissolves are missed.** A
+15-frame cross-fade moves too little mass per frame to clear any threshold that leaves a
+camera pan alone. A learned detector (TransNetV2-class) is the known-better replacement and
+slots in behind the same interface.
+
 **Caveat, stated plainly:** for the *tracking* stages above, "worked" means *ran without
 crashing and produced qualitatively reasonable output*. Apart from the ball numbers just
 given, we have **not** measured accuracy against ground truth (no tracking-quality metrics,
@@ -222,6 +248,5 @@ a GPU before queueing it behind one.**
 Two things the ball work leaves queued, neither GPU-bound:
 - **Label the BvB–PSG control passage** (`bvb_frames/`, extracted and probed) to separate
   "the detector is weak" from "that pitch was covered in confetti".
-- **Cut detection** is now a measured gap, not a suspicion: the BvB broadcast cuts every
-  24.7 s on average, so any clip longer than ~25 s picked at random spans a shot change.
-  Red-team §1.1/§3.1 called this; `ffmpeg`'s scene filter measures it with no ML at all.
+- ~~**Cut detection**~~ — **built 2026-09-13**, `pipeline/video/`. See the shot-detection
+  section below.

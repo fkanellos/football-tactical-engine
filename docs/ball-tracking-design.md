@@ -892,13 +892,24 @@ because correcting it needs labels on every frame.
 rather than assumed:
 
 - **Not camera cuts.** An `ffmpeg` scene-change pass over the 858 frames finds
-  **zero** shot changes — the clip is one continuous take. Worth knowing that
-  this is luck: the same pass over the full BvB–PSG broadcast (100 min) finds
-  **244 cuts, one every 24.7 s**, so a randomly chosen 34 s broadcast clip
-  carries ~1.4 cuts. Every future passage must be cut inside a verified
-  continuous shot, or tracking breaks for reasons that will be misattributed.
-  This also quantifies red-team §1.1/§3.1: the missing cut classifier is a real
-  gap, just not one that contaminated *this* measurement.
+  **zero** shot changes — the clip is one continuous take, confirmed
+  independently by `pipeline/video/shots.py`. Worth knowing that this is luck:
+  over the full BvB–PSG broadcast (100 min) ffmpeg finds **340 cuts, one every
+  17.7 s**, and our detector finds **525, one every 11.5 s** (93.5% agreement
+  on ffmpeg's calls; three sampled extras were all genuine cuts ffmpeg missed).
+  So **a randomly chosen 34 s broadcast clip spans two or three cuts.** Every
+  future passage must be cut inside a verified continuous shot, or tracking
+  breaks for reasons that will be misattributed. This also quantifies red-team
+  §1.1/§3.1: the missing cut classifier is a real gap, just not one that
+  contaminated *this* measurement.
+
+  > **Correction.** An earlier version of this section, and the commit that
+  > introduced it, said "244 cuts, one every 24.7 s". That count was read from
+  > an ffmpeg process that was still running — a partial result reported as
+  > final. The true figure is 340, and the argument it supports is stronger,
+  > not weaker. Recorded rather than quietly overwritten because the mistake
+  > was procedural (trusting a background job's output before it exited) and
+  > the same trap is available to anyone re-running these experiments.
 - **Not the ball leaving frame with the play.** The probe records `n_persons`
   per frame, and **no frame in either dump has zero persons** — there is no
   replay or close-up segment hiding in the clip (H5's structural check).
