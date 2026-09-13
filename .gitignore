@@ -2,3 +2,13 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .DS_Store
+
+# Local experiment scratch: reproducible from the clip + setup.sh, too big to track.
+# The probe *outputs* and the hand labels under research/ are tracked deliberately —
+# they are the measurement, and the labels cost half an hour of human clicking.
+.probe_venv/
+ofi_frames/
+*.pt
+
+# Per-machine tool permission grants, absolute paths and all.
+.claude/

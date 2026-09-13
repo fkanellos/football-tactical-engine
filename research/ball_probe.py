@@ -80,9 +80,9 @@ def main():
                 for offset, res in enumerate(results):
                     balls, n_persons = [], 0
                     for box in res.boxes.cpu().numpy():
-                        if int(box.cls) == COCO_PERSON:
+                        if int(box.cls[0]) == COCO_PERSON:
                             n_persons += 1
-                        elif int(box.cls) == COCO_SPORTS_BALL:
+                        elif int(box.cls[0]) == COCO_SPORTS_BALL:
                             l, t, r, b = (float(v) for v in box.xyxy[0])
                             balls.append([l, t, r, b, float(box.conf[0])])
                     if balls:
