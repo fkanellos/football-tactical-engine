@@ -1,17 +1,22 @@
 # Ball Tracking: Diagnosis, Measurement, and the Honest Path
 
-**Status:** the measurement layer, the ball motion model, and the ground-truth
-evaluation entry point are **implemented and green** against synthetic
-trajectories, synthetic labels, and synthetic detections (63 tests,
-`pipeline/ball/`, run with the main suite); the labelling tool
-(`tools/annotator.html` ball mode) and the workflow that joins it to the probe
-are §6.6. The diagnosis (§2) is grounded in the actual sn-gamestate/TrackLab
-source (pinned clones read for this pass: sn-gamestate main, tracklab v1.3.24)
-and the annotated OFI frames — and it is **conclusive without any further
-measurement: the deployed pipeline contains no ball detector at all** (§2.1).
-The first ball evidence on real footage comes from `research/ball_probe.py`,
-the next-GPU-session experiment (§7). No ball signal has been computed on real
-pixels yet.
+**Status:** the §7.1 probe **has been run** and the §6.4 labels **have been
+collected** — see **§11 for measured results**, which supersede the predictions
+in §4 and correct the prescription in §7.2. Headline: a stock COCO checkpoint
+recalls the ball on **30.4%** of hand-labelled OFI frames at its *default*
+inference size, and **H1 is refuted in the opposite direction** — 1280 is six
+times worse than 640, so the "more pixels" ladder is closed.
+
+The measurement layer, the ball motion model, and the ground-truth evaluation
+entry point are **implemented and green** against synthetic trajectories,
+synthetic labels, and synthetic detections (63 tests, `pipeline/ball/`, run with
+the main suite); the labelling tool (`tools/annotator.html` ball mode) and the
+workflow that joins it to the probe are §6.6. The diagnosis (§2) is grounded in
+the actual sn-gamestate/TrackLab source (pinned clones read for this pass:
+sn-gamestate main, tracklab v1.3.24) and the annotated OFI frames — and it is
+**conclusive without any further measurement: the deployed pipeline contains no
+ball detector at all** (§2.1). That remains true: §11 measures what a detector
+*would* see, not something the pipeline now carries.
 
 **Scope:** the ball channel of the perception front-end — detection, position,
 and the per-frame `ball_quality` gate — which the possession state machine,
@@ -156,6 +161,16 @@ downstream "ball" assumption is currently unbacked. Fix classes: §7 items 1–2
 The remaining hypotheses concern **what will fail once detection is enabled** —
 they are ranked predictions the §7.1 probe turns into measurements, with the
 evidence that would confirm or refute each:
+
+> **Measured 2026-09-13 — read §11 before trusting the rankings below.** H1 is
+> **refuted, and inverted**: recall *falls* with resolution above 640. H2 is
+> **not confirmed as the dominant failure**: a confidence floor alone reaches
+> 93.8% precision, and the false positives that remain concentrate in the
+> stands, not on the grass. H5's person-count check found **no frame with zero
+> persons** in the OFI clip, and an independent cut check found **no shot
+> changes at all** — so neither replays nor camera cuts explain any of the
+> 23% of the clip the ball channel goes dark. The unmeasured hypotheses (H3,
+> H4, H7) are untouched and stay as written.
 
 **H1 — Too few pixels at wide framing (high; the binding constraint).**
 0.22 m at 0.04–0.07 m/px ⇒ 3–6 px wide-shot, ~10 px near-goal (§3), halved at
@@ -569,11 +584,20 @@ the ground, not whether it was found.)
    separate single-object channel.** Patch the YOLO wrapper via
    `patch_sn_gamestate.py` to *dump* class-32 candidates per frame during
    normal runs (same jsonl, zero pipeline-behaviour change — detections still
-   person-only), raise inference to `imgsz=1280`, and select/gate offline with
-   `BallSmoother` + `ball_quality`. Explicitly **do not** route ball
-   detections into StrongSORT/ReID/team/OCR (§2.3, H6). *Class: sn-gamestate
-   patch (small, sentinel-guarded like the existing four) + this repo's
-   already-implemented offline layer.*
+   person-only), ~~raise inference to `imgsz=1280`~~ **keep inference at the
+   stock `imgsz=640`**, and select/gate offline with `BallSmoother` +
+   `ball_quality`. Explicitly **do not** route ball detections into
+   StrongSORT/ReID/team/OCR (§2.3, H6). *Class: sn-gamestate patch (small,
+   sentinel-guarded like the existing four) + this repo's already-implemented
+   offline layer.*
+
+   > **Corrected 2026-09-13 (§11).** The 1280 prescription was wrong and is
+   > struck through rather than deleted, because the reasoning that produced it
+   > (small object ⇒ more pixels) is the reasoning a reader will re-derive.
+   > Measured: 640 recalls the ball 6× more often than 1280 and 1.35× more often
+   > than 800, and 640 is already the wrapper's default — so this proposal costs
+   > *no* inference-config change at all, only the dump. Raising resolution would
+   > have spent GPU to make the channel worse while looking like a ball failure.
 3. **Wire `ball_quality` into the Phase 4 adapter and the event layer's
    kinematics input** once the first real export exists — the §6.2 seam, the
    §6.3 degradation table, and re-fit of the ramp thresholds. *Class: this
@@ -762,3 +786,196 @@ suspicion.
 - SkillCorner open data [industry]. github.com/SkillCorner/opendata.
   `*_tracking_extrapolated.jsonl`, `is_detected` flags; ball imputation
   methodology unpublished — NOT-FOUND as documentation.
+
+---
+
+## 11. Measured results (2026-09-13) — the first real perception numbers
+
+Everything above this section is prediction. This section is measurement, and
+where the two disagree the measurement wins. It supersedes §4's hypothesis
+rankings, corrects §7.2's prescription, and closes §9's experiment.
+
+**What was run.** `research/ball_probe.py` over all 858 OFI frames at six
+inference sizes; 108 frames hand-labelled through `tools/annotator.html` ball
+mode at stride 8 (102 visible + 6 adjudicated absent, native 1280×720);
+`pipeline/ball/evaluation.py` scoring the two against each other in pixel
+space. Reproduce every table below with:
+
+```bash
+python research/ball_analysis.py
+```
+
+Inputs are tracked: `research/ball_probe_out/*.jsonl` (the dumps) and
+`research/ofi_frames.ball-gt.json` (the labels). The probe ran on **CPU**, not
+the GPU session §9 assumed — ~10 min per resolution for 858 frames, which
+retires "blocked on Colab quota" as a reason this experiment ever waited.
+
+### 11.1 The resolution curve — H1 refuted, and inverted
+
+Raw recall ignores confidence entirely: did *any* candidate land within 8 px of
+the label. It is the ceiling no threshold or selection rule can beat.
+
+| imgsz | raw recall | hits | candidates | labelled frames with no candidate |
+|------:|-----------:|-----:|-----------:|----------------------------------:|
+|   320 |       1.0% |    1 |         10 |                           101/102 |
+|   480 |      16.7% |   17 |        207 |                            74/102 |
+| **640** | **30.4%** | **31** |    **588** |                        **46/102** |
+|   800 |      22.5% |   23 |      1 500 |                            26/102 |
+|   960 |      22.5% |   23 |      1 605 |                            11/102 |
+|  1280 |       4.9% |    5 |      1 968 |                            25/102 |
+
+A clean inverted U peaking at 640 — which is the stock ultralytics default and
+the size the deployed wrapper already uses. §9.5 nominated the 640-vs-1280
+ratio as "the cheapest decisive number in the whole plan". It is decisive
+against the plan: **1280 is 6× worse, not better.**
+
+Read the last two columns together for the mechanism. As resolution rises,
+frames with *nothing* fall (101 → 11) while candidates explode (10 → 1 968).
+Higher resolution makes the detector **more talkative, not more correct**: it
+finds steadily more things and steadily fewer of them are the ball. The
+hypothesis that fits — untested, offered as a hypothesis — is that downscaling
+compresses a motion-blurred ellipse into the compact blob COCO's prior expects,
+while native resolution resolves every head, confetti flake and line marking
+into something with enough structure to claim the class.
+
+### 11.2 Operating points at 640
+
+| conf | P | R | F1 | TP | FP | FP on absent frames |
+|-----:|--:|--:|---:|---:|---:|--------------------:|
+| 0.05 | 50.0% | 28.4% | 36.2 | 29 | 29 | 33.3% |
+| **0.10** | **70.3%** | **25.5%** | **37.4** | 26 | 11 | 16.7% |
+| **0.20** | **93.8%** | **14.7%** | 25.4 | 15 |  1 | **0%** |
+| 0.30 | 75.0% |  2.9% |  5.7 |  3 |  1 | 0% |
+
+640 dominates every other size at every floor — best F1, best precision, best
+recall. Two defensible operating points: **0.10** maximises F1, **0.20** buys
+93.8% precision and perfect silence on the six frames the annotator adjudicated
+as ball-absent. For a channel whose consumers are gated on `ball_quality`
+(§6.2), 0.20 is the better default: a sparse clean signal degrades gracefully,
+a dense dirty one poisons possession.
+
+Contrast 960 at conf 0.05, where **83.3% of the absent-ball frames received a
+false detection**. Those six frames are the cheapest labels in the set and the
+only ones that price precision honestly — "ball not visible" as a first-class
+label (§6.4) earned its keep here.
+
+### 11.3 Detections are bimodal — there are no near misses
+
+Across all 102 visible labels, at both 640 and 1280, the distance from label to
+nearest candidate falls into exactly two regimes: **under 4 px, or over 300 px.
+Zero detections land between 4 px and 20 px.**
+
+Three consequences. (a) Localisation is not a problem — when the detector finds
+the ball it is sub-pixel-accurate (median error 1.6 px at 640). (b) The
+tolerance constant is not a lever: 4 px and 8 px produce byte-identical tables,
+so quoting recall "at 8 px tolerance" versus WASB's 4 px (§5.2) is a
+distinction without a difference *on this footage*. (c) Annotator precision is
+not the bottleneck — a hand click anywhere inside the blob is within tolerance,
+and missing by enough to matter would mean clicking a different part of the
+pitch.
+
+### 11.4 Gap structure at 640 / conf 0.10
+
+Over all 858 frames: detections in 316 (36.8%), 78 gaps.
+
+- median gap **3 frames** (120 ms), mean 6.9, max 49 (2.0 s)
+- **65% of gaps ≤ 5 frames** — bridgeable by `BallSmoother` without inventing
+  trajectory (§6.5)
+- **5 blackouts over 1 s, spanning 199 frames = 23% of the clip** — not
+  bridgeable, and the §6.3 degradation table is what runs there
+
+Computed over unlabelled frames, so false positives split real holes: the
+figures are optimistic by roughly (1 − precision). Stated rather than corrected,
+because correcting it needs labels on every frame.
+
+**Two things that are *not* the explanation for the blackouts**, both checked
+rather than assumed:
+
+- **Not camera cuts.** An `ffmpeg` scene-change pass over the 858 frames finds
+  **zero** shot changes — the clip is one continuous take. Worth knowing that
+  this is luck: the same pass over the full BvB–PSG broadcast (100 min) finds
+  **244 cuts, one every 24.7 s**, so a randomly chosen 34 s broadcast clip
+  carries ~1.4 cuts. Every future passage must be cut inside a verified
+  continuous shot, or tracking breaks for reasons that will be misattributed.
+  This also quantifies red-team §1.1/§3.1: the missing cut classifier is a real
+  gap, just not one that contaminated *this* measurement.
+- **Not the ball leaving frame with the play.** The probe records `n_persons`
+  per frame, and **no frame in either dump has zero persons** — there is no
+  replay or close-up segment hiding in the clip (H5's structural check).
+
+So the 23% is the detector going blind on footage where the ball is present,
+in shot, and hand-findable.
+
+### 11.5 H2 (confetti) — real, but not the dominant failure
+
+The pitch is strewn with white paper (§3), and the confetti *is* visible in the
+candidate counts. But it is not what caps recall, and precision does not need a
+clever filter to survive it: **a confidence floor alone reaches 93.8%**.
+
+Candidates by image row, conf ≥ 0.05:
+
+| band | imgsz 640 | median width | imgsz 1280 | median width |
+|------|----------:|-------------:|-----------:|-------------:|
+| y 0–200 (stands, boards) | **31.1%** | 15.7–22.8 px | **22.5%** | 12.3–17.1 px |
+| y 200–600 (pitch) | 48.3% | 8.4–14.6 px | 63.2% | ~8.2 px |
+| y 600–720 (near touchline) | 20.6% | 16.5 px | 1.6% | 7.9 px |
+
+Roughly a quarter to a third of all candidates sit **above the pitch**, in the
+crowd and advertising boards, at about twice a real ball's width. A pitch mask
+deletes them for free without touching recall — cheap, but a precision
+improvement on a channel whose problem is recall, so: worth doing, not worth
+prioritising.
+
+### 11.6 Selection error is small at the operating point
+
+§6 chose trajectory-gated offline selection over confidence ranking. The full
+label set says this matters less than a 13-label preview suggested:
+
+| imgsz / conf | `selection=best` TP | `selection=any` TP |
+|---|---:|---:|
+| 640 / 0.05 | 29 | 31 |
+| 640 / 0.10 | 26 | 27 |
+| 640 / 0.20 | 15 | 15 |
+| 1280 / 0.05 | 1 | 5 |
+
+At 640 the gap is one or two frames — highest-confidence is *nearly* the right
+pick, and the ceiling (31) is close. The design choice stands on its own merits
+(trajectory continuity, gap bridging), **not** on a claim that confidence
+selection is broken; at 640 it very nearly is not. The gap is real only at
+1280, where nothing works anyway.
+
+### 11.7 Where this leaves §7's ladder
+
+§9.4 defined the branches: ≥50% with interpolable gaps → proposals 2–3;
+materially better at 1280 → proposal 4; <20% everywhere → proposal 5. The
+measurement landed **between them at ~26%**, with the 1280 branch dead. The
+honest synthesis is a hybrid, and it is cheaper than any single branch:
+
+1. **Proposal 2, at 640 and therefore free of any inference change** — dump
+   class-32 candidates during normal runs and select offline.
+2. **Proposal 3 with a measured floor** — the §6.2 ramps now have a real number
+   to sit on instead of an engineering guess.
+3. **Proposal 5's stance for the 23%** — blackouts do not get bridged. Ball
+   dependent consumers gate off, per the §6.3 table, and the §8 promise changes
+   stay in force.
+
+**Proposal 4 (fine-tuning) is neither confirmed nor refuted by this.** What is
+refuted is the *resolution* lever; a fine-tune at 640 on SoccerNet-Tracking ball
+boxes remains the strongest available improvement and is now better targeted,
+since we know the operating size.
+
+### 11.8 What these numbers do not establish
+
+Stated plainly, because the tables above are quotable and the caveats are not:
+
+- **102 labels, 15–31 true positives.** Roughly ±9 points on any recall figure.
+  Order of magnitude, not benchmark.
+- **One clip: 34 s, one camera, one match, one confetti-covered pitch.** The
+  confetti control (a clean-pitch BvB–PSG passage at identical 1280×720/25 fps)
+  is extracted and probed; until it is labelled, "26%" is a property of *this
+  footage*, not of the detector.
+- **One checkpoint** (`yolo11m.pt`, stock COCO). Nothing here says anything
+  about a football-specific detector.
+- **Recall is measured against frames where the ball is hand-findable.** It says
+  nothing about whether the *resulting positions* are good enough for
+  possession, which is a `ball_quality` question the §6 layer answers separately.

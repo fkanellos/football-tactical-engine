@@ -8,6 +8,7 @@ __pycache__/
 # they are the measurement, and the labels cost half an hour of human clicking.
 .probe_venv/
 ofi_frames/
+bvb_frames/
 *.pt
 
 # Per-machine tool permission grants, absolute paths and all.

@@ -1,6 +1,13 @@
 # STATUS — where the project actually stands
 
-_Snapshot: 2026-07-16. Read this before trusting any "done" claim elsewhere._
+_Snapshot: 2026-09-13. Read this before trusting any "done" claim elsewhere._
+
+**Change since 2026-07-16:** the project has its **first real perception measurement**. The
+ball channel was probed against 108 hand-labelled frames — 30.4% raw recall, 93.8% precision
+at a usable operating point, and the design doc's "raise resolution to 1280" prescription
+measured as 6× *worse* than the stock 640. Details in the green section; full tables in
+docs/ball-tracking-design.md §11. Everything else below is unchanged: **no tactical component
+has still ever consumed real tracking output.**
 
 The one-line honest version: **the perception front-end (stages 1–4) is proven end-to-end on a
 full real broadcast clip — detection, tracking, team ID, pitch mapping, and the 2D minimap all
@@ -44,9 +51,41 @@ a pipeline config that upstream doesn't ship, all now committed and auto-applied
   for arbitrary clips, including the `use_wandb`/`use_rich`/`eval_tracking: False` keys the newer
   TrackLab requires.
 
-**Caveat, stated plainly:** "worked" here means *ran without crashing and produced
-qualitatively reasonable output*. We have **not** measured accuracy against ground truth
-(no tracking-quality metrics, no calibration-error numbers, no per-stage precision/recall).
+### Ball detection, measured against hand labels (2026-09-13)
+
+The first per-stage precision/recall number this project has ever had. 108 frames of the same
+OFI clip hand-labelled at stride 8 (102 visible + 6 adjudicated absent), scored against
+`research/ball_probe.py` dumps at six inference sizes. Full analysis:
+docs/ball-tracking-design.md §11; reproduce with `python research/ball_analysis.py`.
+
+| imgsz | 320 | 480 | **640** | 800 | 960 | 1280 |
+|---|---|---|---|---|---|---|
+| raw recall | 1.0% | 16.7% | **30.4%** | 22.5% | 22.5% | 4.9% |
+
+At **640 / conf 0.20**: precision **93.8%**, recall 14.7%, and zero false positives on the six
+ball-absent frames. At 640 / conf 0.10: precision 70.3%, recall 25.5% (best F1).
+
+Four things this settled, all of which were open guesses on 2026-07-16:
+- **The "raise inference to imgsz 1280" plan (ball-tracking-design §7.2) was wrong** — 1280 is
+  6× worse than the stock 640. Higher resolution makes the detector more talkative, not more
+  correct (candidates 10 → 1,968 as frames-with-nothing fall 101 → 11).
+- **The ball channel is sparse but clean, not dead.** Gaps at 640/0.10: median 3 frames, 65%
+  bridgeable, but 5 blackouts over 1 s covering 23% of the clip that must gate consumers off.
+- **The confetti (H2) is not the dominant failure.** A confidence floor alone reaches 93.8%
+  precision; the surviving false positives sit in the stands (22–31% of candidates above the
+  pitch line, ~2× a real ball's width), removable by a pitch mask.
+- **The blackouts are genuine detector blindness** — not cuts (a scene-change pass finds the
+  clip is one continuous take) and not replays (no frame has zero persons).
+
+Bounds, because the table is quotable and these are not: 102 labels and 15–31 true positives
+(±~9 points), one 34 s clip, one camera, one confetti-covered pitch, one stock COCO checkpoint.
+A clean-pitch control passage (BvB–PSG, identical 1280×720/25 fps, cut-verified) is extracted
+and probed, pending labels.
+
+**Caveat, stated plainly:** for the *tracking* stages above, "worked" means *ran without
+crashing and produced qualitatively reasonable output*. Apart from the ball numbers just
+given, we have **not** measured accuracy against ground truth (no tracking-quality metrics,
+no calibration-error numbers, no per-stage precision/recall for detection or tracking).
 The `boundary_noise_m = 0.5` used throughout the event layer is still an engineering guess,
 not a measured value from this footage.
 
@@ -85,9 +124,12 @@ proves the *semantics of the heuristics*, not their behaviour on noisy real data
 - **Ball measurement layer + motion model** — coverage/gap statistics, physical-plausibility
   and player-consistency checks, per-frame `ball_quality` gate, and a gated alpha-beta ball
   smoother with honest short-gap interpolation, validated against synthetic trajectories with
-  injected dropouts and false positives. 42 tests. Has never seen a real ball detection —
-  because none exists yet: the deployed pipeline has **no ball detector at all** (see 🔴
-  below). (`pipeline/ball/`, design: docs/ball-tracking-design.md)
+  injected dropouts and false positives. 42 tests. **Partially exercised on real data as of
+  2026-09-13**: `evaluation.py` has now scored real probe dumps against real hand labels (see
+  the ball section above), and the gap/coverage statistics have been computed over the real
+  clip. The `ball_quality` gate and `BallSmoother` themselves remain synthetic-only — they
+  need a ball *stream*, and the pipeline still has no ball detector wired in (see 🔴 below).
+  (`pipeline/ball/`, design: docs/ball-tracking-design.md §11)
 
 ## 🔵 Design-only (specified, not built)
 
@@ -115,9 +157,8 @@ proves the *semantics of the heuristics*, not their behaviour on noisy real data
   detector wrapper keeps only the person class from a stock COCO checkpoint; upstream GSR
   excludes the ball by design (dataset, baseline, and metric). Every ball detection rate we
   have ever had is exactly 0, and everything ball-dependent (possession, pressing, counters,
-  Tier 1–2 events) currently has no input. Diagnosis, literature, and the ranked plan:
-  docs/ball-tracking-design.md; the measure-first probe (`research/ball_probe.py`) is queued
-  for the next GPU session alongside the calibration export.
+  Tier 1–2 events) currently has no input. **Still true as of 2026-09-13** — but the ball is
+  now *measured* rather than merely absent: see the green section below.
 
 ---
 
@@ -171,8 +212,16 @@ camera params, H) and run `pipeline/calibration/`'s measurement layer over it �
 experiment is scripted in docs/calibration-design.md §9. Note the re-run must use the fixed
 `video_demo.yaml` (calibration image-size keys) or every pitch coordinate repeats the
 1080p/720p distortion.
-Third priority, same session (~5 min GPU): run the **ball probe** —
-`research/ball_probe.py --frames /content/frames --out /content/ball_probe --imgsz 640 1280`
-— and retrieve both jsonl files; the offline analysis (detection rate, gap distribution,
-hypothesis verdicts) is scripted in docs/ball-tracking-design.md §9 and runs in this repo
-with no GPU.
+~~Third priority, same session (~5 min GPU): run the **ball probe**~~ — **done 2026-09-13,
+and it never needed the GPU.** `research/ball_probe.py` runs on CPU in ~10 min per resolution
+for 858 frames; the full six-resolution sweep, the labelling, and the analysis were all done
+locally while the quota stayed exhausted. Results: the ball section above and
+ball-tracking-design.md §11. Worth generalising: **check whether an experiment actually needs
+a GPU before queueing it behind one.**
+
+Two things the ball work leaves queued, neither GPU-bound:
+- **Label the BvB–PSG control passage** (`bvb_frames/`, extracted and probed) to separate
+  "the detector is weak" from "that pitch was covered in confetti".
+- **Cut detection** is now a measured gap, not a suspicion: the BvB broadcast cuts every
+  24.7 s on average, so any clip longer than ~25 s picked at random spans a shot change.
+  Red-team §1.1/§3.1 called this; `ffmpeg`'s scene filter measures it with no ML at all.
