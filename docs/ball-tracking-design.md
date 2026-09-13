@@ -1,11 +1,17 @@
 # Ball Tracking: Diagnosis, Measurement, and the Honest Path
 
-**Status:** the §7.1 probe **has been run** and the §6.4 labels **have been
-collected** — see **§11 for measured results**, which supersede the predictions
-in §4 and correct the prescription in §7.2. Headline: a stock COCO checkpoint
-recalls the ball on **30.4%** of hand-labelled OFI frames at its *default*
-inference size, and **H1 is refuted in the opposite direction** — 1280 is six
-times worse than 640, so the "more pixels" ladder is closed.
+**Status:** the §7.1 probe **has been run** on two clips and the §6.4 labels
+**have been collected** for both — see **§11 for measured results**, which
+supersede the predictions in §4 and correct the prescription in §7.2.
+
+Headline, and read both lines or neither: a stock COCO checkpoint recalls the
+ball on **30.4%** of hand-labelled OFI frames at 640, collapsing to 4.9% at
+1280 — but on a **clean-pitch control clip** of identical format it reaches
+**41.5% at 960** and holds 35.1% at 1280. The optimal inference size is a
+property of **the footage, not the detector**, and the thing that moves it is
+ground debris. What is genuinely settled, on both clips and independent of
+resolution, is §11.9: **~70% recall when the ball is near camera, 0% on the far
+side of the pitch.**
 
 The measurement layer, the ball motion model, and the ground-truth evaluation
 entry point are **implemented and green** against synthetic trajectories,
@@ -591,13 +597,20 @@ the ground, not whether it was found.)
    sentinel-guarded like the existing four) + this repo's already-implemented
    offline layer.*
 
-   > **Corrected 2026-09-13 (§11).** The 1280 prescription was wrong and is
-   > struck through rather than deleted, because the reasoning that produced it
-   > (small object ⇒ more pixels) is the reasoning a reader will re-derive.
-   > Measured: 640 recalls the ball 6× more often than 1280 and 1.35× more often
-   > than 800, and 640 is already the wrapper's default — so this proposal costs
-   > *no* inference-config change at all, only the dump. Raising resolution would
-   > have spent GPU to make the channel worse while looking like a ball failure.
+   > **Corrected 2026-09-13, twice (§11.1, then §11.9).** The strike-through
+   > above records the first correction: on the OFI clip, 640 recalls the ball 6×
+   > more often than 1280, so raising resolution would have spent GPU to make the
+   > channel *worse*. The control clip then showed that result was confetti, not
+   > physics — on a clean pitch the curve climbs to **960 (41.5% recall, 81.2%
+   > precision)**, well past 640.
+   >
+   > So neither "1280" nor "640" is the prescription. **The size is footage-
+   > dependent**, and §11.9.2 proposes candidate density as the signal that picks
+   > it without labels. Pin nothing in config until that is tested; until then,
+   > probe the clip at 640/960 and choose. Both corrections are kept visible
+   > because the reasoning behind each is one a reader will re-derive unprompted
+   > — "small object ⇒ more pixels" the first time, "measured: more pixels lose"
+   > the second.
 3. **Wire `ball_quality` into the Phase 4 adapter and the event layer's
    kinematics input** once the first real export exists — the §6.2 seam, the
    §6.3 degradation table, and re-fit of the ramp thresholds. *Class: this
@@ -810,7 +823,14 @@ Inputs are tracked: `research/ball_probe_out/*.jsonl` (the dumps) and
 the GPU session §9 assumed — ~10 min per resolution for 858 frames, which
 retires "blocked on Colab quota" as a reason this experiment ever waited.
 
-### 11.1 The resolution curve — H1 refuted, and inverted
+### 11.1 The resolution curve on the OFI clip
+
+> **Scope, added after the control clip landed (§11.9): everything in this
+> subsection is true of the OFI footage and does not generalise.** The peak at
+> 640 and the collapse at 1280 are caused by confetti, not by the detector. On
+> clean footage the curve keeps climbing to 960. The first version of this
+> section drew the general conclusion "the more-pixels ladder is closed"; that
+> was wrong, and §11.9 has the corrected reading.
 
 Raw recall ignores confidence entirely: did *any* candidate land within 8 px of
 the label. It is the ceiling no threshold or selection rule can beat.
@@ -990,3 +1010,122 @@ Stated plainly, because the tables above are quotable and the caveats are not:
 - **Recall is measured against frames where the ball is hand-findable.** It says
   nothing about whether the *resulting positions* are good enough for
   possession, which is a `ball_quality` question the §6 layer answers separately.
+
+---
+
+## 11.9 The control clip — what generalises and what was a property of one pitch
+
+§11 rested on one clip. The obvious objection — that a confetti-covered pitch is
+not football footage in general — was answered by running the whole workflow a
+second time on a control chosen to differ in exactly one respect.
+
+**The control.** BvB–PSG, a Champions League broadcast: 1280×720 at 25 fps, the
+*identical* format to the OFI clip, so nothing needed re-tuning. A 34.32 s
+passage (858 frames, `t=860s`) cut from inside a verified continuous shot —
+verified because by then we knew broadcast cuts every ~12–18 s (§11.4), so an
+arbitrary window would have spanned two or three. Clean pitch, no confetti. 108
+frames labelled at stride 8: 94 visible, 14 absent.
+
+### 11.9.1 Recall is depth-limited, and this is the finding that generalises
+
+Recall at 640, split by where the ball sits in the frame — which in a broadcast
+framing is depth, and therefore ball size in pixels:
+
+| zone | y range | OFI | BvB |
+|---|---|---:|---:|
+| far side | 0–250 | **0.0%** (0/30) | **0.0%** (0/11) |
+| mid-far | 250–400 | 16.0% | 15.8% |
+| mid-near | 400–550 | 11.1% | 52.6% |
+| near camera | 550–720 | **68.4%** | **71.4%** |
+
+Two independent clips, two competitions, two productions, two pitch conditions,
+and the same shape: **~70% near, 0% far, across 41 labelled far-side frames with
+not one detection between them.** That is not "sometimes misses" — it is a floor.
+
+This reframes every aggregate in §11. "26% recall" is not a property of the
+detector; it is the clip's *mix of framings* multiplied by a step function. Change
+the mix and the number moves without anything real having changed, which is why
+the aggregate should not be quoted again without the zone table beside it.
+
+**H1's diagnosis was right and its test was wrong.** The hypothesis said pixels
+are the binding constraint (§4); the confirmation it proposed was "recall at 1280
+≫ recall at 640". The diagnosis is now confirmed decisively — near is big is
+found, far is 3–6 px is never found — while the test it proposed measures
+something else entirely. Upscaling at inference does not add information to a
+blurred 4 px blob; it only gives every other small bright object more structure
+to claim the class. Correct cause, wrong instrument, and a remedy that treats the
+instrument.
+
+### 11.9.2 Resolution: the OFI curve was a confetti artifact
+
+| imgsz | 480 | 640 | 800 | 960 | 1280 |
+|---|---:|---:|---:|---:|---:|
+| OFI raw recall | 16.7% | **30.4%** | 22.5% | 22.5% | **4.9%** |
+| BvB raw recall | 14.9% | 25.5% | 29.8% | **41.5%** | 35.1% |
+
+The clean clip does not collapse. It peaks at **960 with 41.5% recall at 81.2%
+precision (F1 54.9)** — the best operating point measured anywhere in this work,
+and 63% more recall than 640 — and still holds 35.1% at 1280 where OFI managed
+4.9%.
+
+So the **§11.1 generalisation was wrong**: more pixels do help the ball. What
+also happens is that more pixels resolve every confetti flake into something
+ball-shaped, and on a debris-heavy pitch that supply overtakes the signal above
+640. Two effects with opposite signs, and which one wins is a property of the
+grass.
+
+Candidate volume shows the mechanism directly, since it needs no labels:
+
+| imgsz | OFI candidates | BvB candidates | ratio |
+|---|---:|---:|---:|
+| 480 | 207 | 210 | 1.0× |
+| 640 | 588 | 315 | 1.9× |
+| 800 | 1 500 | 359 | **4.2×** |
+
+At 480 the confetti is too small to resolve and the clips behave identically. The
+gap opens exactly as resolution makes debris legible.
+
+**A practical consequence, offered as a hypothesis with support rather than a
+result:** candidate density is a *self-diagnosing* signal for this. It needs no
+ground truth, it is computed by the probe already, and a clip producing ~1.7
+candidates per frame at 800 (OFI) versus ~0.4 (BvB) is announcing its own debris
+level. An adaptive rule — raise inference size while candidate density stays low,
+back off when it spikes — would pick 960 for BvB and 640 for OFI without anyone
+labelling anything. Untested; worth testing before any resolution is pinned in a
+config.
+
+### 11.9.3 H2 was right about the mechanism and wrong about the victim
+
+Confetti does not touch recall: 25–30% at 640 on both clips. It costs
+**precision**, by up to 3.7× (800: OFI 22.5% vs BvB 82.4%). The §11.5 reading
+stands with its emphasis corrected — debris is a precision problem, and the
+reason it *looks* like a recall problem on OFI is that it forces the inference
+size down to 640, which costs the recall that 960 would have delivered.
+
+### 11.9.4 What §7's ladder looks like now
+
+Unchanged: **proposal 2 at whatever size the footage supports**, proposal 3 with
+a measured floor, proposal 5's stance for the far side.
+
+Changed: the far-side floor is now measured at **0%**, on two clips, which is
+stronger than the "<20% everywhere" branch anticipated and makes §7.5 the plan of
+record rather than the fallback — *for the far side specifically*. The near field
+at ~70% is a usable channel, and the §6.3 degradation table should be re-read as
+a function of ball depth rather than of the clip.
+
+**Proposal 4 (fine-tuning) gains, rather than loses, from this.** §11.1 read as
+evidence against it; that reading was resolution-shaped. The real finding is a
+detector that is fine at 10–12 px and blind at 3–6 px, which is precisely the gap
+a small-ball architecture (WASB, MOT4MOT's recipe — §5.2) exists to close. It
+remains the first expensive item and still waits on the foundation.
+
+### 11.9.5 Bounds
+
+Two clips are not a sample. 94 and 102 visible labels, TP counts of 15–39, so
+±9 points on any single figure. Two broadcast productions of one format
+(1280×720/25 fps) — nothing here transfers to 1080p, to a fixed tactical camera,
+or to a Veo-style panoramic feed, where the ball would sit at a roughly uniform
+~7 px (estimated from one frame's centre-circle scale, not measured) and the
+zone table implies that is the wrong side of the cliff. One stock COCO
+checkpoint. And zone boundaries drawn at round pixel values on two clips of the
+same framing style — the *shape* replicates, the cut points are not calibrated.

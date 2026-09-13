@@ -1,0 +1,2 @@
+imgsz=960: 339/858 frames with >=1 ball candidate at conf>=0.05 -> research/bvb_probe_out/ball_probe_960.jsonl
+imgsz=1280: 407/858 frames with >=1 ball candidate at conf>=0.05 -> research/bvb_probe_out/ball_probe_1280.jsonl

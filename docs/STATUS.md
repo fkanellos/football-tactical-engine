@@ -58,29 +58,47 @@ OFI clip hand-labelled at stride 8 (102 visible + 6 adjudicated absent), scored 
 `research/ball_probe.py` dumps at six inference sizes. Full analysis:
 docs/ball-tracking-design.md §11; reproduce with `python research/ball_analysis.py`.
 
-| imgsz | 320 | 480 | **640** | 800 | 960 | 1280 |
-|---|---|---|---|---|---|---|
-| raw recall | 1.0% | 16.7% | **30.4%** | 22.5% | 22.5% | 4.9% |
+**Two clips**, each 858 frames at 1280×720/25 fps with 108 hand labels at stride 8: the OFI
+clip (confetti-covered pitch) and a **clean-pitch control** (BvB–PSG, identical format, cut
+inside a verified continuous shot).
 
-At **640 / conf 0.20**: precision **93.8%**, recall 14.7%, and zero false positives on the six
-ball-absent frames. At 640 / conf 0.10: precision 70.3%, recall 25.5% (best F1).
+**The finding that generalises — recall is depth-limited**, at 640, by where the ball sits:
 
-Four things this settled, all of which were open guesses on 2026-07-16:
-- **The "raise inference to imgsz 1280" plan (ball-tracking-design §7.2) was wrong** — 1280 is
-  6× worse than the stock 640. Higher resolution makes the detector more talkative, not more
-  correct (candidates 10 → 1,968 as frames-with-nothing fall 101 → 11).
-- **The ball channel is sparse but clean, not dead.** Gaps at 640/0.10: median 3 frames, 65%
-  bridgeable, but 5 blackouts over 1 s covering 23% of the clip that must gate consumers off.
-- **The confetti (H2) is not the dominant failure.** A confidence floor alone reaches 93.8%
-  precision; the surviving false positives sit in the stands (22–31% of candidates above the
-  pitch line, ~2× a real ball's width), removable by a pitch mask.
-- **The blackouts are genuine detector blindness** — not cuts (a scene-change pass finds the
-  clip is one continuous take) and not replays (no frame has zero persons).
+| zone | far side | mid-far | mid-near | near camera |
+|---|---|---|---|---|
+| OFI | **0.0%** (0/30) | 16.0% | 11.1% | **68.4%** |
+| BvB | **0.0%** (0/11) | 15.8% | 52.6% | **71.4%** |
 
-Bounds, because the table is quotable and these are not: 102 labels and 15–31 true positives
-(±~9 points), one 34 s clip, one camera, one confetti-covered pitch, one stock COCO checkpoint.
-A clean-pitch control passage (BvB–PSG, identical 1280×720/25 fps, cut-verified) is extracted
-and probed, pending labels.
+**~70% near camera, 0% on the far side** — 41 labelled far-side frames across two
+competitions, two productions, zero detections. Any single "recall %" is the clip's mix of
+framings times a step function; do not quote one without this table.
+
+**The resolution curve does NOT generalise** — it is set by ground debris:
+
+| imgsz | 480 | 640 | 800 | 960 | 1280 |
+|---|---|---|---|---|---|
+| OFI | 16.7% | **30.4%** | 22.5% | 22.5% | **4.9%** |
+| BvB | 14.9% | 25.5% | 29.8% | **41.5%** | 35.1% |
+
+Best operating point anywhere: **BvB at 960 / conf 0.05 — precision 81.2%, recall 41.5%,
+F1 54.9.** More pixels genuinely help the ball; they also resolve every confetti flake into
+something ball-shaped, and which effect wins is a property of the grass (candidate counts at
+800: OFI 1,500 vs BvB 359). **Pin no inference size in config** — ball-tracking-design §11.9.2
+proposes candidate density as a label-free signal for choosing it per clip.
+
+Also settled:
+- **H1's diagnosis was right, its proposed test was wrong.** Pixels are the binding
+  constraint — but "recall at 1280 ≫ recall at 640" measures something else, because
+  upscaling adds no information to a blurred 4 px blob.
+- **H2 (confetti) was right about the mechanism, wrong about the victim.** It costs precision
+  (up to 3.7×), not recall (25–30% on both clips).
+- **The blackouts are genuine detector blindness** — not cuts (both clips are single-shot,
+  confirmed by two independent detectors) and not replays (no frame has zero persons).
+
+Bounds: 94 and 102 visible labels, 15–39 true positives (±~9 points). Two broadcast clips of
+one format — nothing transfers to 1080p, to a fixed tactical camera, or to a Veo panoramic
+feed, where the ball sits at a roughly uniform ~7 px (estimated, not measured) and the zone
+table implies that is the wrong side of the cliff. One stock COCO checkpoint.
 
 ### Shot-boundary detection, built and validated on real broadcast (2026-09-13)
 
