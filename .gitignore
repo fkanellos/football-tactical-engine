@@ -13,3 +13,7 @@ bvb_frames/
 
 # Per-machine tool permission grants, absolute paths and all.
 .claude/
+
+# Frame packages built for a Colab upload; rebuild with ffmpeg, never track.
+*.zip
+bvb_long/
