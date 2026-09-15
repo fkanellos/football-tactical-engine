@@ -239,10 +239,19 @@ ffmpeg -i clip.mp4 -vf fps=25 /content/frames/%06d.jpg
 
 # 3. Run the pipeline on the FRAME FOLDER (treated as ONE video so tracking
 #    persists across frames — do NOT pass the .mp4 directly).
+#    MPLBACKEND=Agg is required, not optional: a Colab notebook exports
+#    MPLBACKEND=module://matplotlib_inline.backend_inline into the environment,
+#    the venv's Python 3.9 matplotlib has no such backend, and tracklab dies on
+#    import before doing any work. Agg is the right backend here anyway — the
+#    run writes video to disk and has no display.
 cd /content/sn-gamestate
-uv run --python .venv/bin/python tracklab -cn video_demo \
+MPLBACKEND=Agg uv run --python .venv/bin/python tracklab -cn video_demo \
   dataset.video_path=/content/frames dataset.nframes=-1 num_cores=0
 ```
+
+**Frames get to the VM via Google Drive, not the Colab uploader** — mount once
+(`from google.colab import drive; drive.mount('/content/drive')`) and the zips
+survive session death, which the uploader's copies do not.
 
 Notebook alternative: open `research/00_setup_sn_gamestate.ipynb`, run the setup cell (it calls
 `setup.sh`), then **switch the kernel to "Python 3.9 (sn-gamestate)"** before the demo cell —
